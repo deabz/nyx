@@ -203,12 +203,16 @@ class CommandView(discord.ui.View):
   def current_embed(self):
       title, entries = self.pages[self.current_page]
       embed = discord.Embed(
-          title=f"Command help: {title}",
-          description="\n".join(
-              f"`{cmd_prefix}{name}` - {description}" for name, description in entries
-          ),
+          title=f"nyx help • {title}",
+          description="Use `/command` or `-command`  •  Select a page below",
           colour=random.choice(colours),
       )
+      for name, description in entries:
+          embed.add_field(
+              name=f"{cmd_prefix}{name}",
+              value=description[:1024],
+              inline=True,
+          )
       embed.set_footer(text=f"Page {self.current_page + 1}/{len(self.pages)}")
       return embed
 
@@ -284,15 +288,39 @@ async def help(ctx):
       for command in client.commands
       if command.name not in DISABLED_OVERLAPPING_COMMANDS
   }
-  entries = [
-      (name, command.help or command.description or "No description available.")
+  categories = {
+      "Quick start": ["help", "ping", "uptime", "invite", "calc"],
+      "Insights": [
+          "serverhealth", "serverreport", "channelpulse", "memberinsights",
+          "randommember", "timezone",
+      ],
+      "Tools": [
+          "weather", "youtube", "analyse", "define", "urban", "poll", "remind",
+      ],
+      "Community": ["afk", "mock", "say", "suggest", "whois", "userinfo"],
+  }
+  pages = []
+  listed = set()
+  for title, names in categories.items():
+      entries = []
+      for name in names:
+          command = active.get(name)
+          if command is not None:
+              entries.append(
+                  (name, (command.help or command.description or "No description available.").split(".")[0])
+              )
+              listed.add(name)
+      if entries:
+          pages.append((title, entries))
+
+  remaining = [
+      (name, (command.help or command.description or "No description available.").split(".")[0])
       for name, command in sorted(active.items())
+      if name not in listed
   ]
-  page_size = 8
-  pages = [
-      ("Commands", entries[index:index + page_size])
-      for index in range(0, len(entries), page_size)
-  ] or [("Commands", [("help", "Show this help menu.")])]
+  for index in range(0, len(remaining), 10):
+      pages.append((f"More commands {index // 10 + 1}", remaining[index:index + 10]))
+  pages = pages or [("Commands", [("help", "Show this help menu")])]
   view = CommandView(pages, ctx.author.id)
   view.message = await ctx.send(
       embed=view.current_embed(),
