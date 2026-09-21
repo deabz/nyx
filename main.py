@@ -277,6 +277,7 @@ insight_commands = [
 ]
 
 @client.hybrid_command()
+@commands.cooldown(1, 10, commands.BucketType.user)
 async def help(ctx):
   active = {
       command.name: command
@@ -293,7 +294,12 @@ async def help(ctx):
       for index in range(0, len(entries), page_size)
   ] or [("Commands", [("help", "Show this help menu.")])]
   view = CommandView(pages, ctx.author.id)
-  view.message = await ctx.send(embed=view.current_embed(), view=view)
+  view.message = await ctx.send(
+      embed=view.current_embed(),
+      view=view,
+      ephemeral=ctx.interaction is not None,
+      delete_after=None if ctx.interaction is not None else 120,
+  )
 
 api_term = "https://api.urbandictionary.com/v0/define?term="
 api_rand = "https://api.urbandictionary.com/v0/random"
@@ -967,6 +973,15 @@ async def stop(ctx):
 @client.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
+        return
+
+    if isinstance(error, commands.CommandOnCooldown):
+        retry_after = max(1, int(error.retry_after))
+        await ctx.send(
+            f"Please wait {retry_after} seconds before opening help again.",
+            ephemeral=ctx.interaction is not None,
+            delete_after=5 if ctx.interaction is None else None,
+        )
         return
 
     if isinstance(error, commands.CheckFailure):
