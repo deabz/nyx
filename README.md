@@ -1,8 +1,16 @@
 # nyx
 
-nyx is a Discord companion bot focused on server insights and lightweight
-utilities. It intentionally avoids duplicating the separate moderation and
-snipe bot.
+nyx is an insights-only Discord bot for understanding server health, activity,
+members, roles, and voice usage. It intentionally leaves moderation, sniping,
+entertainment, and general utility commands to the separate bot.
+
+## Commands
+
+All commands are available as slash commands:
+
+`/help` `/ping` `/uptime` `/serverhealth` `/serverreport`
+`/channelpulse` `/roleinsights` `/memberinsights` `/memberactivity`
+`/voiceinsights` `/timezone`
 
 ## Run
 

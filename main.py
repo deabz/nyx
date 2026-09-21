@@ -289,15 +289,12 @@ async def help(ctx):
       if command.name not in DISABLED_OVERLAPPING_COMMANDS
   }
   categories = {
-      "Quick start": ["help", "ping", "uptime", "invite", "calc"],
+      "Quick start": ["help", "ping", "uptime"],
       "Insights": [
-          "serverhealth", "serverreport", "channelpulse", "memberinsights",
-          "randommember", "timezone",
+          "serverhealth", "serverreport", "channelpulse", "roleinsights",
+          "memberinsights", "memberactivity", "voiceinsights",
       ],
-      "Tools": [
-          "weather", "youtube", "analyse", "define", "urban", "poll", "remind",
-      ],
-      "Community": ["afk", "mock", "say", "suggest", "whois", "userinfo"],
+      "Reference": ["timezone"],
   }
   pages = []
   listed = set()
@@ -2223,20 +2220,104 @@ async def serverreport(ctx):
     report.add_field(name="Features", value=", ".join(guild.features[:10]) or "None", inline=False)
     await ctx.send(embed=report)
 
+@client.hybrid_command(description="Show the most-used roles and their member counts.")
+async def roleinsights(ctx):
+    if ctx.guild is None:
+        await ctx.send("This command can only be used inside a server.")
+        return
+
+    roles = sorted(
+        (role for role in ctx.guild.roles if role != ctx.guild.default_role),
+        key=lambda role: len(role.members),
+        reverse=True,
+    )
+    top_roles = roles[:10]
+    summary = "\n".join(
+        f"{index}. {role.mention} — **{len(role.members)}** members"
+        for index, role in enumerate(top_roles, start=1)
+    ) or "No custom roles found."
+    embed = discord.Embed(
+        title=f"Role insights: {ctx.guild.name}",
+        description=summary,
+        colour=discord.Colour.blurple(),
+    )
+    embed.add_field(name="Total roles", value=str(len(roles)), inline=True)
+    embed.add_field(
+        name="Managed roles",
+        value=str(sum(role.managed for role in roles)),
+        inline=True,
+    )
+    await ctx.send(embed=embed)
+
+@client.hybrid_command(description="Show a member's recent message activity in this channel.")
+async def memberactivity(ctx, member: discord.Member = None, limit: int = 100):
+    if ctx.guild is None:
+        await ctx.send("This command can only be used inside a server.")
+        return
+    member = member or ctx.author
+    limit = max(25, min(limit, 500))
+    if not isinstance(ctx.channel, discord.TextChannel):
+        await ctx.send("Use this command in a text channel.")
+        return
+
+    messages = [
+        message async for message in ctx.channel.history(limit=limit)
+        if message.author.id == member.id
+    ]
+    embed = discord.Embed(
+        title=f"Member activity: {member.display_name}",
+        description=f"Messages by {member.mention} in {ctx.channel.mention}.",
+        colour=member.colour,
+    )
+    embed.add_field(name="Messages sampled", value=str(limit), inline=True)
+    embed.add_field(name="Messages found", value=str(len(messages)), inline=True)
+    embed.add_field(
+        name="Attachments",
+        value=str(sum(len(message.attachments) for message in messages)),
+        inline=True,
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    await ctx.send(embed=embed)
+
+@client.hybrid_command(description="Show the server's current voice-channel occupancy.")
+async def voiceinsights(ctx):
+    if ctx.guild is None:
+        await ctx.send("This command can only be used inside a server.")
+        return
+
+    channels = [
+        channel for channel in ctx.guild.voice_channels
+        if channel.members
+    ]
+    occupancy = sum(len(channel.members) for channel in channels)
+    summary = "\n".join(
+        f"{channel.mention} — **{len(channel.members)}** connected"
+        for channel in sorted(channels, key=lambda item: len(item.members), reverse=True)
+    ) or "Nobody is currently in a voice channel."
+    embed = discord.Embed(
+        title=f"Voice insights: {ctx.guild.name}",
+        description=summary,
+        colour=discord.Colour.blurple(),
+    )
+    embed.add_field(name="Active channels", value=str(len(channels)), inline=True)
+    embed.add_field(name="Members connected", value=str(occupancy), inline=True)
+    await ctx.send(embed=embed)
+
 
 def setup(client):
     client.add_command(servers)
 
-# The Node.js bot is the authoritative moderation and snipe bot. Keep this
-# companion bot focused on its remaining utility features to avoid duplicate
-# prefix and slash commands in the same server.
+# nyx is an insights-only bot. The separate bot remains responsible for
+# moderation, sniping, entertainment, and general utility commands.
+INSIGHTS_ONLY_COMMANDS = {
+    "help", "ping", "uptime", "serverhealth", "serverreport", "channelpulse",
+    "roleinsights", "memberinsights", "memberactivity", "voiceinsights",
+    "timezone",
+}
+
 DISABLED_OVERLAPPING_COMMANDS = {
-    "warn", "warns", "kick", "ban", "unban", "mute", "unmute", "muterole",
-    "tempmute", "purge", "delete", "wl", "bl", "unbl", "status", "role",
-    "roleinfo", "nick", "nickreset", "snipe", "userinfo", "whois", "stats",
-    "botinfo", "av", "invite", "servers", "inv", "leave", "banlist",
-    "secret", "ping", "say", "afk", "suggest", "calc", "hug", "kiss",
-    "emotions",
+    command.name for command in client.commands
+    if command.name not in INSIGHTS_ONLY_COMMANDS
 }
 
 for command_name in DISABLED_OVERLAPPING_COMMANDS:
