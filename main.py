@@ -1639,13 +1639,13 @@ async def weather(ctx, *, location=None):
         cache_status = "cached" if cache_hit else "fresh"
         embed.set_footer(
             text=f"Requested by {ctx.author.name} • OpenWeather • {cache_status}",
-            icon_url=ctx.author.avatar.url,
+            icon_url=ctx.author.display_avatar.url,
         )
 
         await ctx.send(embed=embed)
     except RuntimeError as error:
         await ctx.send(f":x: **{error}**")
-    except (requests.RequestException, KeyError, TypeError, ValueError):
+    except Exception:
         logging.exception("Weather lookup failed for %s", location)
         await ctx.send(':x: **Weather lookup failed. Check the location and try again.**')
 
@@ -1879,6 +1879,7 @@ async def youtube(ctx, *, query=None):
         await ctx.send(f"Usage: `{cmd_prefix}youtube <search terms>`")
         return
 
+    search_url = f"https://www.youtube.com/results?search_query={quote(query)}"
     try:
         results = await asyncio.to_thread(
             lambda: VideosSearch(query, limit=1).result()
@@ -1903,10 +1904,7 @@ async def youtube(ctx, *, query=None):
         await ctx.send(embed=embed)
     except Exception:
         logging.exception("YouTube search failed for %s", query)
-        await ctx.send(
-            f"Search failed, but you can open YouTube results here: "
-            f"https://www.youtube.com/results?search_query={quote(query)}"
-        )
+        await ctx.send(f"Search results for **{query}**: {search_url}")
 
 @client.hybrid_command()
 async def leave(ctx, server_id: int):
