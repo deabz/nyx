@@ -11,12 +11,13 @@ All commands are available as slash commands:
 `/help` `/ping` `/uptime` `/serverhealth` `/serverreport`
 `/channelpulse` `/roleinsights` `/memberinsights` `/memberactivity`
 `/voiceinsights` `/analytics` `/topmessages` `/topwords` `/wordcloud`
-`/voiceactivity` `/joins` `/leaves` `/messagechanges` `/timezone`
+`/voiceactivity` `/joins` `/leaves` `/messagechanges` `/cloud` `/timezone`
 
 Analytics are stored per server in the local SQLite database. The bot records
 message counts and words, edits, deletions, member joins and leaves, and voice
 sessions. Use `/analytics` for totals, then the focused commands for rankings
-and history. Message content is stored locally to calculate word statistics.
+and history. `/cloud` combines the main server-wide analytics into one
+dashboard. Message content is stored locally to calculate word statistics.
 
 ## Run
 

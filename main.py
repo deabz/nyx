@@ -382,7 +382,7 @@ async def help(ctx):
           "memberinsights", "memberactivity", "voiceinsights",
       ],
       "Analytics": [
-          "analytics", "topmessages", "topwords", "wordcloud", "voiceactivity",
+          "cloud", "analytics", "topmessages", "topwords", "wordcloud", "voiceactivity",
           "joins", "leaves", "messagechanges",
       ],
       "Reference": ["timezone"],
@@ -2492,6 +2492,87 @@ async def analytics(ctx):
     embed.set_footer(text="Data is stored locally in the bot's SQLite database.")
     await ctx.send(embed=embed)
 
+@client.hybrid_command(description="Show a complete stored analytics dashboard for this server.")
+async def cloud(ctx):
+    guild = analytics_guild(ctx)
+    cursor.execute(
+        """SELECT COUNT(*), COUNT(DISTINCT user_id), COALESCE(SUM(word_count), 0),
+        COUNT(DISTINCT channel_id) FROM message_activity WHERE guild_id = ?""",
+        (guild.id,),
+    )
+    messages, authors, words, channels = cursor.fetchone()
+
+    cursor.execute(
+        """SELECT user_id, COUNT(*) FROM message_activity
+        WHERE guild_id = ? GROUP BY user_id ORDER BY COUNT(*) DESC LIMIT 3""",
+        (guild.id,),
+    )
+    top_messages = cursor.fetchall()
+    message_lines = "\n".join(
+        f"{index}. <@{user_id}> — {total:,}"
+        for index, (user_id, total) in enumerate(top_messages, 1)
+    ) or "No message data"
+
+    cursor.execute(
+        """SELECT user_id, COALESCE(SUM(word_count), 0) FROM message_activity
+        WHERE guild_id = ? GROUP BY user_id ORDER BY SUM(word_count) DESC LIMIT 3""",
+        (guild.id,),
+    )
+    top_words = cursor.fetchall()
+    word_lines = "\n".join(
+        f"{index}. <@{user_id}> — {total:,}"
+        for index, (user_id, total) in enumerate(top_words, 1)
+    ) or "No word data"
+
+    cursor.execute(
+        "SELECT event_type, COUNT(*) FROM member_events WHERE guild_id = ? GROUP BY event_type",
+        (guild.id,),
+    )
+    events = dict(cursor.fetchall())
+    cursor.execute("SELECT COUNT(*) FROM voice_activity WHERE guild_id = ?", (guild.id,))
+    voice_sessions = cursor.fetchone()[0]
+    cursor.execute(
+        """SELECT COUNT(*), SUM(edited_at IS NOT NULL), SUM(deleted_at IS NOT NULL)
+        FROM message_activity WHERE guild_id = ?""",
+        (guild.id,),
+    )
+    _, edits, deletions = cursor.fetchone()
+
+    dashboard = discord.Embed(
+        title=f"nyx cloud • {guild.name}",
+        description="Complete stored server insights in one view.",
+        colour=discord.Colour.from_rgb(93, 64, 242),
+    )
+    dashboard.add_field(
+        name="Overview",
+        value=(
+            f"Members: **{guild.member_count or len(guild.members):,}**\n"
+            f"Tracked channels: **{channels:,}**\n"
+            f"Stored messages: **{messages:,}**\n"
+            f"Stored words: **{words:,}**"
+        ),
+        inline=True,
+    )
+    dashboard.add_field(
+        name="Member events",
+        value=f"Joins: **{events.get('join', 0):,}**\nLeaves: **{events.get('leave', 0):,}**",
+        inline=True,
+    )
+    dashboard.add_field(
+        name="Changes & voice",
+        value=f"Edits: **{edits or 0:,}**\nDeletions: **{deletions or 0:,}**\nVoice sessions: **{voice_sessions:,}**",
+        inline=True,
+    )
+    dashboard.add_field(name="Top message authors", value=message_lines, inline=True)
+    dashboard.add_field(name="Top word counts", value=word_lines, inline=True)
+    dashboard.add_field(
+        name="Use next",
+        value="`/topmessages` `/topwords` `/wordcloud` `/voiceactivity` `/joins` `/leaves`",
+        inline=False,
+    )
+    dashboard.set_footer(text="Stored locally in SQLite • Analytics begin when the bot is online")
+    await ctx.send(embed=dashboard)
+
 @client.hybrid_command(description="Rank members by total stored messages.")
 async def topmessages(ctx, limit: int = 10):
     guild = analytics_guild(ctx)
@@ -2627,7 +2708,7 @@ INSIGHTS_ONLY_COMMANDS = {
     "help", "ping", "uptime", "serverhealth", "serverreport", "channelpulse",
     "roleinsights", "memberinsights", "memberactivity", "voiceinsights",
     "timezone", "analytics", "topmessages", "topwords", "wordcloud",
-    "voiceactivity", "joins", "leaves", "messagechanges",
+    "voiceactivity", "joins", "leaves", "messagechanges", "cloud",
 }
 
 DISABLED_OVERLAPPING_COMMANDS = {
