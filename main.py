@@ -35,12 +35,13 @@ load_dotenv()
 
 bot_name = "nyx"
 cmd_prefix = "-"
+OWNER_ID = 1029077015342612521
 mod_role = "."
 suggestion_channel = 1014163879707811842
 intents = discord.Intents.all()
 intents.members = True
 bot = commands.Bot(command_prefix='.', intents=intents)
-client = commands.Bot(command_prefix=cmd_prefix, intents=intents)
+client = commands.Bot(command_prefix=(cmd_prefix, "."), intents=intents)
 client.remove_command('help')
 slash_commands_synced = False
 muted_users = []
@@ -85,6 +86,11 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS user_roles (
                     roles TEXT
                 )''')
 cursor.executescript("""
+CREATE TABLE IF NOT EXISTS bot_access (
+    user_id INTEGER PRIMARY KEY,
+    added_by INTEGER NOT NULL,
+    added_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS message_activity (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     guild_id INTEGER NOT NULL,
@@ -117,6 +123,43 @@ CREATE INDEX IF NOT EXISTS idx_member_events_guild ON member_events(guild_id, ev
 CREATE INDEX IF NOT EXISTS idx_voice_guild_user ON voice_activity(guild_id, user_id);
 """)
 database.commit()
+
+class AccessDenied(commands.CheckFailure):
+    pass
+
+def is_bot_user_allowed(user_id):
+    if user_id == OWNER_ID:
+        return True
+    cursor.execute("SELECT 1 FROM bot_access WHERE user_id = ?", (user_id,))
+    return cursor.fetchone() is not None
+
+def add_bot_access(user_id, added_by):
+    cursor.execute(
+        "INSERT OR REPLACE INTO bot_access (user_id, added_by, added_at) VALUES (?, ?, ?)",
+        (user_id, added_by, datetime.now(timezone.utc).isoformat()),
+    )
+    database.commit()
+
+async def prefix_access_check(ctx):
+    if ctx.command and ctx.command.name == "allow":
+        if ctx.author.id != OWNER_ID:
+            raise AccessDenied()
+        return True
+    if not is_bot_user_allowed(ctx.author.id):
+        raise AccessDenied()
+    return True
+
+async def slash_access_check(interaction):
+    if interaction.command and interaction.command.name == "allow":
+        if interaction.user.id != OWNER_ID:
+            raise AccessDenied()
+        return True
+    if not is_bot_user_allowed(interaction.user.id):
+        raise AccessDenied()
+    return True
+
+client.add_check(prefix_access_check)
+client.tree.interaction_check = slash_access_check
 
 def analytics_now():
     return datetime.now(timezone.utc).isoformat()
@@ -236,6 +279,53 @@ colors = {
 async def ping(ctx):
   await ctx.send(f'Pong! `{client.latency * 1000:.0f}`ms')
 
+def resolve_access_user(target, user_id):
+    if target is not None:
+        return target
+    if user_id and user_id.isdigit():
+        return discord.Object(id=int(user_id))
+    return None
+
+@client.hybrid_command(name="allow", description="Allow a user to use nyx commands.")
+async def allow(ctx, target: discord.User = None, user_id: str = None):
+    if ctx.author.id != OWNER_ID:
+        raise AccessDenied()
+    user = resolve_access_user(target, user_id)
+    if user is None:
+        await ctx.send(f"Usage: `{cmd_prefix}allow @user` or `{cmd_prefix}allow <user_id>`")
+        return
+    add_bot_access(user.id, ctx.author.id)
+    await ctx.send(f"✅ <@{user.id}> can now use nyx commands.")
+
+@client.hybrid_command(name="list", description="List users allowed to use nyx.")
+async def access_list(ctx):
+    if ctx.author.id != OWNER_ID:
+        raise AccessDenied()
+    cursor.execute("SELECT user_id FROM bot_access ORDER BY added_at")
+    allowed = [f"<@{user_id}> (`{user_id}`)" for (user_id,) in cursor.fetchall()]
+    owner = f"<@{OWNER_ID}> (`{OWNER_ID}`) — owner"
+    embed = discord.Embed(
+        title="nyx access list",
+        description="\n".join([owner] + allowed) if allowed else owner,
+        colour=discord.Colour.blurple(),
+    )
+    await ctx.send(embed=embed)
+
+@client.hybrid_command(name="disallow", description="Remove a user's nyx access.")
+async def disallow(ctx, target: discord.User = None, user_id: str = None):
+    if ctx.author.id != OWNER_ID:
+        raise AccessDenied()
+    user = resolve_access_user(target, user_id)
+    if user is None:
+        await ctx.send(f"Usage: `{cmd_prefix}disallow @user` or `{cmd_prefix}disallow <user_id>`")
+        return
+    if user.id == OWNER_ID:
+        await ctx.send("❌ The owner cannot be removed.")
+        return
+    cursor.execute("DELETE FROM bot_access WHERE user_id = ?", (user.id,))
+    database.commit()
+    await ctx.send(f"✅ Removed nyx access from <@{user.id}>.")
+
 colours = [discord.Colour.dark_purple()]
 
 class CommandView(discord.ui.View):
@@ -266,7 +356,7 @@ class CommandView(discord.ui.View):
       embed = discord.Embed(
           title=f"nyx  •  {title}",
           description="Choose a category below to explore nyx's commands.\n"
-                      "Commands work with `/` and the `-` prefix.",
+                      "Commands work with `/`, `-`, or `.` prefixes.",
           colour=discord.Colour.from_rgb(93, 64, 242),
       )
       command_lines = "\n".join(
@@ -377,6 +467,7 @@ async def help(ctx):
   }
   categories = {
       "Quick start": ["help", "ping", "uptime"],
+      "Access": ["allow", "list", "disallow"],
       "Insights": [
           "serverhealth", "serverreport", "channelpulse", "roleinsights",
           "memberinsights", "memberactivity", "voiceinsights",
@@ -1097,6 +1188,10 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
 
+    if isinstance(error, AccessDenied):
+        await ctx.send("❌ You aren't allowed to use this bot.")
+        return
+
     if isinstance(error, ValueError):
         await ctx.send(f"❌ {error}")
         return
@@ -1112,6 +1207,19 @@ async def on_command_error(ctx, error):
 
     if isinstance(error, commands.CheckFailure):
         await ctx.send("You don't have the required role to use this command.")
+
+@client.tree.error
+async def on_app_command_error(interaction, error):
+    if isinstance(error, AccessDenied):
+        message = "❌ You aren't allowed to use this bot."
+    else:
+        logging.exception("Slash command failed", exc_info=error)
+        message = "❌ This command could not be completed."
+
+    if interaction.response.is_done():
+        await interaction.followup.send(message, ephemeral=True)
+    else:
+        await interaction.response.send_message(message, ephemeral=True)
 
 member_counts = {}  # Define and initialize the member_counts dictionary
 
@@ -2705,7 +2813,7 @@ def setup(client):
 # nyx is an insights-only bot. The separate bot remains responsible for
 # moderation, sniping, entertainment, and general utility commands.
 INSIGHTS_ONLY_COMMANDS = {
-    "help", "ping", "uptime", "serverhealth", "serverreport", "channelpulse",
+    "help", "ping", "uptime", "allow", "list", "disallow", "serverhealth", "serverreport", "channelpulse",
     "roleinsights", "memberinsights", "memberactivity", "voiceinsights",
     "timezone", "analytics", "topmessages", "topwords", "wordcloud",
     "voiceactivity", "joins", "leaves", "messagechanges", "cloud",

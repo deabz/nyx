@@ -13,6 +13,12 @@ All commands are available as slash commands:
 `/voiceinsights` `/analytics` `/topmessages` `/topwords` `/wordcloud`
 `/voiceactivity` `/joins` `/leaves` `/messagechanges` `/cloud` `/timezone`
 
+Access is restricted to the owner ID configured in the bot (`1029077015342612521`)
+until another user is added. The owner can use `.allow @user` or
+`.allow <user_id>`, `.list` to view access, and `.disallow @user` or
+`.disallow <user_id>` to remove access. The same commands are available as
+`/allow`, `/list`, and `/disallow`.
+
 Analytics are stored per server in the local SQLite database. The bot records
 message counts and words, edits, deletions, member joins and leaves, and voice
 sessions. Use `/analytics` for totals, then the focused commands for rankings
