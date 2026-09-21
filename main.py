@@ -18,14 +18,10 @@ from webserver import keep_alive
 from collections import defaultdict
 import sqlite3
 import logging
-from discord.ext.commands.errors import CommandInvokeError
 from pyowm.owm import OWM
 import requests
 import time
 import aiohttp
-import io
-import mal_scraper
-import math
 import moment
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import quote
