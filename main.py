@@ -37,7 +37,7 @@ suggestion_channel = 1014163879707811842
 intents = discord.Intents.all()
 intents.members = True
 bot = commands.Bot(command_prefix='.', intents=intents)
-client = commands.Bot(command_prefix=(cmd_prefix, "."), intents=intents)
+client = commands.Bot(command_prefix=commands.when_mentioned, intents=intents)
 client.remove_command('help')
 slash_commands_synced = False
 muted_users = []
@@ -288,7 +288,7 @@ async def allow(ctx, target: discord.User = None, user_id: str = None):
         raise AccessDenied()
     user = resolve_access_user(target, user_id)
     if user is None:
-        await ctx.send(f"Usage: `{cmd_prefix}allow @user` or `{cmd_prefix}allow <user_id>`")
+        await ctx.send("Usage: `/allow member:<@user>` or `/allow user_id:<id>`")
         return
     add_bot_access(user.id, ctx.author.id)
     await ctx.send(f"✅ <@{user.id}> can now use nyx commands.")
@@ -313,7 +313,7 @@ async def disallow(ctx, target: discord.User = None, user_id: str = None):
         raise AccessDenied()
     user = resolve_access_user(target, user_id)
     if user is None:
-        await ctx.send(f"Usage: `{cmd_prefix}disallow @user` or `{cmd_prefix}disallow <user_id>`")
+        await ctx.send("Usage: `/disallow member:<@user>` or `/disallow user_id:<id>`")
         return
     if user.id == OWNER_ID:
         await ctx.send("❌ The owner cannot be removed.")
@@ -349,18 +349,28 @@ class CommandView(discord.ui.View):
 
   def current_embed(self):
       title, entries = self.pages[self.current_page]
+      bot_avatar = client.user.display_avatar.url if client.user else None
       embed = discord.Embed(
-          title=f"nyx  •  {title}",
-          description="Choose a category below to explore nyx's commands.\n"
-                      "Commands work with `/`, `-`, or `.` prefixes.",
+          title=f"{bot_name}  /  {title}",
+          description="A clean view of your server intelligence toolkit.\n"
+                      "Use the menu to switch categories.",
           colour=discord.Colour.from_rgb(93, 64, 242),
       )
+      if bot_avatar:
+          embed.set_author(name=f"{bot_name} insights", icon_url=bot_avatar)
+      else:
+          embed.set_author(name=f"{bot_name} insights")
+      if bot_avatar:
+          embed.set_thumbnail(url=bot_avatar)
       command_lines = "\n".join(
-          f"`{cmd_prefix}{name}`  —  {description[:120]}"
+          f"**`/{name}`**\n{description[:120]}"
           for name, description in entries
       )
-      embed.add_field(name="Available commands", value=command_lines or "No commands available.", inline=False)
-      embed.set_footer(text=f"Category {self.current_page + 1} of {len(self.pages)}  •  nyx insights")
+      embed.add_field(name="Commands", value=command_lines or "No commands available.", inline=False)
+      embed.set_footer(
+          text=f"Category {self.current_page + 1}/{len(self.pages)}  •  "
+               f"Requested by {self.owner_id}"
+      )
       return embed
 
   @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
@@ -1151,7 +1161,7 @@ async def on_message(message):
         return
 
     if client.user.mentioned_in(message):
-        embed = discord.Embed(title="Help", description="If you need help, type `.help`", colour=discord.Colour.blue())
+        embed = discord.Embed(title="Help", description="Use `/help` to view nyx commands.", colour=discord.Colour.blue())
         await message.channel.send(embed=embed)
 
     if not message.author.bot:
@@ -1167,7 +1177,8 @@ async def on_message(message):
         if message.author.id in mimic_dict:
             await message.channel.send(f"{message.author.mention} said: {message.content}")
 
-    await client.process_commands(message)
+    # Prefix commands are intentionally disabled. Slash commands are handled
+    # through Discord's interactions API.
 
 @client.hybrid_command()
 async def mimic(ctx):

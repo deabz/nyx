@@ -14,10 +14,8 @@ All commands are available as slash commands:
 `/voiceactivity` `/joins` `/leaves` `/messagechanges` `/cloud` `/timezone`
 
 Access is restricted to the owner ID configured in the bot (`1029077015342612521`)
-until another user is added. The owner can use `.allow @user` or
-`.allow <user_id>`, `.list` to view access, and `.disallow @user` or
-`.disallow <user_id>` to remove access. The same commands are available as
-`/allow`, `/list`, and `/disallow`.
+until another user is added. The owner can use `/allow` with a member mention or ID, `/list` to view
+access, and `/disallow` with a member mention or ID to remove access.
 
 Analytics are stored per server in the local SQLite database. The bot records
 message counts and words, edits, deletions, member joins and leaves, and voice
@@ -35,7 +33,7 @@ The bot uses the `MYSTIC_DISCORD_TOKEN` value from `.env`. Its health website
 is available at `http://localhost:8080/`, with a JSON check at
 `http://localhost:8080/health`.
 
-Prefix commands use `-`; slash commands are synced automatically on startup.
-The help menu uses discord.py UI components: a category dropdown plus
-Previous, Next, and Close buttons. Keep `.env` private and rotate the bot
-token if it is ever exposed.
+Slash commands are synced automatically on startup; prefix commands are
+disabled. The help menu uses discord.py UI components: a category dropdown
+plus Previous, Next, and Close buttons. Keep `.env` private and rotate the
+bot token if it is ever exposed.
