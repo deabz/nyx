@@ -1,23 +1,16 @@
 # nyx
 
-nyx is a Discord.js bot for server insights and music playback. It intentionally
-leaves moderation and sniping to the separate bot.
+nyx is an insights-only Discord bot for understanding server health, activity,
+members, roles, and voice usage. It intentionally leaves moderation, sniping,
+entertainment, and general utility commands to the separate bot.
 
 ## Commands
 
 All commands are available as slash commands:
 
-`/help` `/ping` `/uptime` `/serverhealth` `/serverreport` `/channelpulse`
-`/roleinsights` `/memberinsights` `/memberactivity` `/voiceinsights`
-`/play` `/pause` `/resume` `/skip` `/stop` `/queue` `/nowplaying` `/shuffle`
-`/loop` `/disconnect`
-
-## Discord.js setup
-
-Copy `.env.node.example` to `.env` and set `DISCORD_TOKEN` and
-`DISCORD_CLIENT_ID`, then run `npm install`, `npm run deploy`, and `npm start`.
-The Discord.js bot uses Discord voice connections and Discord Player's
-extractor for music playback.
+`/help` `/ping` `/uptime` `/serverhealth` `/serverreport`
+`/channelpulse` `/roleinsights` `/memberinsights` `/memberactivity`
+`/voiceinsights` `/timezone`
 
 ## Run
 
