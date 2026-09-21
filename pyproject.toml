@@ -31,7 +31,7 @@ webserver = "^0.10.3"
 aiohttp = "^3.9.0"
 requests = "^2.31.0"
 humanize = "^4.9.0"
-"discord.py" = "^2.6.4"
+"discord.py" = "^2.7.1"
 
 [tool.poetry.dev-dependencies]
 debugpy = "^1.6.2"

@@ -23,4 +23,6 @@ is available at `http://localhost:8080/`, with a JSON check at
 `http://localhost:8080/health`.
 
 Prefix commands use `-`; slash commands are synced automatically on startup.
-Keep `.env` private and rotate the bot token if it is ever exposed.
+The help menu uses discord.py UI components: a category dropdown plus
+Previous, Next, and Close buttons. Keep `.env` private and rotate the bot
+token if it is ever exposed.

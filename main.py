@@ -186,6 +186,8 @@ class CommandView(discord.ui.View):
       self.owner_id = owner_id
       self.current_page = 0
       self.message = None
+      self.category_select = HelpCategorySelect(self)
+      self.add_item(self.category_select)
 
   async def on_timeout(self):
       if self.message:
@@ -203,17 +205,17 @@ class CommandView(discord.ui.View):
   def current_embed(self):
       title, entries = self.pages[self.current_page]
       embed = discord.Embed(
-          title=f"nyx help • {title}",
-          description="Use `/command` or `-command`  •  Select a page below",
-          colour=random.choice(colours),
+          title=f"nyx  •  {title}",
+          description="Choose a category below to explore nyx's commands.\n"
+                      "Commands work with `/` and the `-` prefix.",
+          colour=discord.Colour.from_rgb(93, 64, 242),
       )
-      for name, description in entries:
-          embed.add_field(
-              name=f"{cmd_prefix}{name}",
-              value=description[:1024],
-              inline=True,
-          )
-      embed.set_footer(text=f"Page {self.current_page + 1}/{len(self.pages)}")
+      command_lines = "\n".join(
+          f"`{cmd_prefix}{name}`  —  {description[:120]}"
+          for name, description in entries
+      )
+      embed.add_field(name="Available commands", value=command_lines or "No commands available.", inline=False)
+      embed.set_footer(text=f"Category {self.current_page + 1} of {len(self.pages)}  •  nyx insights")
       return embed
 
   @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
@@ -230,6 +232,32 @@ class CommandView(discord.ui.View):
   async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
       self.stop()
       await interaction.response.edit_message(view=None)
+
+class HelpCategorySelect(discord.ui.Select):
+  def __init__(self, view):
+      self.help_view = view
+      options = [
+          discord.SelectOption(
+              label=title,
+              value=str(index),
+              description=f"Browse {title.lower()} commands",
+              emoji={"Quick start": "⚡", "Insights": "📊", "Reference": "🌐"}.get(title, "📚"),
+          )
+          for index, (title, _) in enumerate(view.pages)
+      ]
+      super().__init__(
+          placeholder="Select a command category...",
+          min_values=1,
+          max_values=1,
+          options=options[:25],
+      )
+
+  async def callback(self, interaction: discord.Interaction):
+      self.help_view.current_page = int(self.values[0])
+      await interaction.response.edit_message(
+          embed=self.help_view.current_embed(),
+          view=self.help_view,
+      )
 
 general_commands = [
   ("ping", "Pings the bot"),
