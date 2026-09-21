@@ -1,0 +1,14 @@
+Dea Discord Bot export
+
+Run:
+  python3 main.py
+
+Required environment variables:
+  MYSTIC_DISCORD_TOKEN  Discord token for the separate Mystic Insights bot
+  OPENWEATHER_API_KEY   OpenWeather API key
+
+Optional weather cache variables:
+  WEATHER_CACHE_TTL_SECONDS  Cache lifetime in seconds (default: 600)
+  WEATHER_CACHE_MAX_ENTRIES  Maximum cached locations (default: 100)
+
+The old hard-coded OpenWeather key file is intentionally not included.
