@@ -84,7 +84,66 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS user_roles (
                     user_id INTEGER PRIMARY KEY,
                     roles TEXT
                 )''')
+cursor.executescript("""
+CREATE TABLE IF NOT EXISTS message_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id INTEGER NOT NULL,
+    channel_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    edited_at TEXT,
+    deleted_at TEXT,
+    word_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS member_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    occurred_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS voice_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id INTEGER NOT NULL,
+    channel_id INTEGER,
+    user_id INTEGER NOT NULL,
+    joined_at TEXT NOT NULL,
+    left_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_messages_guild_user ON message_activity(guild_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_guild_time ON message_activity(guild_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_member_events_guild ON member_events(guild_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_voice_guild_user ON voice_activity(guild_id, user_id);
+""")
 database.commit()
+
+def analytics_now():
+    return datetime.now(timezone.utc).isoformat()
+
+def record_member_event(guild_id, user_id, event_type):
+    cursor.execute(
+        "INSERT INTO member_events (guild_id, user_id, event_type, occurred_at) VALUES (?, ?, ?, ?)",
+        (guild_id, user_id, event_type, analytics_now()),
+    )
+    database.commit()
+
+def record_message(message):
+    content = message.content or ""
+    cursor.execute(
+        """INSERT INTO message_activity
+        (guild_id, channel_id, user_id, content, created_at, word_count)
+        VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            message.guild.id,
+            message.channel.id,
+            message.author.id,
+            content,
+            analytics_now(),
+            len(re.findall(r"\b[\w'-]+\b", content)),
+        ),
+    )
+    database.commit()
 
 sniped_messages = {}
 
@@ -321,6 +380,10 @@ async def help(ctx):
       "Insights": [
           "serverhealth", "serverreport", "channelpulse", "roleinsights",
           "memberinsights", "memberactivity", "voiceinsights",
+      ],
+      "Analytics": [
+          "analytics", "topmessages", "topwords", "wordcloud", "voiceactivity",
+          "joins", "leaves", "messagechanges",
       ],
       "Reference": ["timezone"],
   }
@@ -986,6 +1049,12 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    if message.guild is not None and not message.author.bot:
+        try:
+            record_message(message)
+        except sqlite3.Error:
+            logging.exception("Could not record message analytics")
+
     # Check if the message mentions everyone or any ping role
     if message.mention_everyone or message.role_mentions:
         return
@@ -1028,6 +1097,10 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
 
+    if isinstance(error, ValueError):
+        await ctx.send(f"❌ {error}")
+        return
+
     if isinstance(error, commands.CommandOnCooldown):
         retry_after = max(1, int(error.retry_after))
         await ctx.send(
@@ -1044,6 +1117,10 @@ member_counts = {}  # Define and initialize the member_counts dictionary
 
 @client.event
 async def on_member_remove(member):
+    try:
+        record_member_event(member.guild.id, member.id, "leave")
+    except sqlite3.Error:
+        logging.exception("Could not record member leave")
     guild = member.guild
 
     # Retrieve the system channel to send a goodbye message
@@ -1056,6 +1133,10 @@ async def on_member_remove(member):
 
 @client.event
 async def on_member_join(member):
+    try:
+        record_member_event(member.guild.id, member.id, "join")
+    except sqlite3.Error:
+        logging.exception("Could not record member join")
     channel = member.guild.system_channel
 
     # Create a purple embed for the welcome message
@@ -1185,6 +1266,13 @@ async def on_message_delete(message):
     if not message.content and not message.attachments:  # Ignore messages without content or attachments
         return
 
+    if message.guild is not None:
+        cursor.execute(
+            "UPDATE message_activity SET deleted_at = ? WHERE guild_id = ? AND channel_id = ? AND content = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1",
+            (analytics_now(), message.guild.id, message.channel.id, message.content or ""),
+        )
+        database.commit()
+
     log_channel = client.get_channel(LOG_CHANNEL_ID)
     embed = discord.Embed(title=":wastebasket: Message Deleted", colour=discord.Colour.blue())
     embed.add_field(name="Channel", value=message.channel.mention, inline=False)
@@ -1215,6 +1303,20 @@ async def on_message_delete(message):
 async def on_message_edit(before, after):
     if not after.content and not after.attachments:  # Ignore messages without content or attachments
         return
+
+    if after.guild is not None:
+        cursor.execute(
+            "UPDATE message_activity SET content = ?, edited_at = ?, word_count = ? WHERE guild_id = ? AND channel_id = ? AND content = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1",
+            (
+                after.content or "",
+                analytics_now(),
+                len(re.findall(r"\b[\w'-]+\b", after.content or "")),
+                after.guild.id,
+                after.channel.id,
+                before.content or "",
+            ),
+        )
+        database.commit()
 
     log_channel = client.get_channel(LOG_CHANNEL_ID)
     embed = discord.Embed(title=":pencil: Message Edited", colour=discord.Colour.blue())
@@ -1405,6 +1507,29 @@ async def on_voice_state_update(member, before, after):
     and removes their permissions when they leave.
     """
     try:
+        if before.channel is None and after.channel is not None:
+            cursor.execute(
+                "INSERT INTO voice_activity (guild_id, channel_id, user_id, joined_at) VALUES (?, ?, ?, ?)",
+                (member.guild.id, after.channel.id, member.id, analytics_now()),
+            )
+            database.commit()
+        elif before.channel is not None and after.channel is None:
+            cursor.execute(
+                "UPDATE voice_activity SET left_at = ? WHERE guild_id = ? AND user_id = ? AND left_at IS NULL ORDER BY id DESC LIMIT 1",
+                (analytics_now(), member.guild.id, member.id),
+            )
+            database.commit()
+        elif before.channel is not None and after.channel is not None and before.channel.id != after.channel.id:
+            cursor.execute(
+                "UPDATE voice_activity SET left_at = ? WHERE guild_id = ? AND user_id = ? AND left_at IS NULL ORDER BY id DESC LIMIT 1",
+                (analytics_now(), member.guild.id, member.id),
+            )
+            cursor.execute(
+                "INSERT INTO voice_activity (guild_id, channel_id, user_id, joined_at) VALUES (?, ?, ?, ?)",
+                (member.guild.id, after.channel.id, member.id, analytics_now()),
+            )
+            database.commit()
+
         text_channel = member.guild.get_channel(1014164592039043095)
         log_channel = client.get_channel(LOG_CHANNEL_ID)  # Replace with the ID of the log channel
 
@@ -2331,6 +2456,167 @@ async def voiceinsights(ctx):
     embed.add_field(name="Members connected", value=str(occupancy), inline=True)
     await ctx.send(embed=embed)
 
+def analytics_guild(ctx):
+    if ctx.guild is None:
+        raise ValueError("This command can only be used inside a server.")
+    return ctx.guild
+
+@client.hybrid_command(description="Show stored analytics totals for this server.")
+async def analytics(ctx):
+    guild = analytics_guild(ctx)
+    cursor.execute(
+        """SELECT COUNT(*), COUNT(DISTINCT user_id), COALESCE(SUM(word_count), 0)
+        FROM message_activity WHERE guild_id = ?""",
+        (guild.id,),
+    )
+    messages, authors, words = cursor.fetchone()
+    cursor.execute(
+        "SELECT COUNT(*) FROM member_events WHERE guild_id = ? AND event_type = 'join'",
+        (guild.id,),
+    )
+    joins = cursor.fetchone()[0]
+    cursor.execute(
+        "SELECT COUNT(*) FROM member_events WHERE guild_id = ? AND event_type = 'leave'",
+        (guild.id,),
+    )
+    leaves = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM voice_activity WHERE guild_id = ?", (guild.id,))
+    voice_sessions = cursor.fetchone()[0]
+    embed = discord.Embed(title=f"Stored analytics • {guild.name}", colour=discord.Colour.blurple())
+    embed.add_field(name="Messages", value=f"{messages:,}", inline=True)
+    embed.add_field(name="Authors", value=f"{authors:,}", inline=True)
+    embed.add_field(name="Words", value=f"{words:,}", inline=True)
+    embed.add_field(name="Joins", value=f"{joins:,}", inline=True)
+    embed.add_field(name="Leaves", value=f"{leaves:,}", inline=True)
+    embed.add_field(name="Voice sessions", value=f"{voice_sessions:,}", inline=True)
+    embed.set_footer(text="Data is stored locally in the bot's SQLite database.")
+    await ctx.send(embed=embed)
+
+@client.hybrid_command(description="Rank members by total stored messages.")
+async def topmessages(ctx, limit: int = 10):
+    guild = analytics_guild(ctx)
+    limit = max(1, min(limit, 20))
+    cursor.execute(
+        """SELECT user_id, COUNT(*) AS total FROM message_activity
+        WHERE guild_id = ? GROUP BY user_id ORDER BY total DESC LIMIT ?""",
+        (guild.id, limit),
+    )
+    rows = cursor.fetchall()
+    lines = "\n".join(
+        f"{index}. <@{user_id}> — **{total:,}** messages"
+        for index, (user_id, total) in enumerate(rows, 1)
+    ) or "No stored messages yet."
+    await ctx.send(embed=discord.Embed(
+        title=f"Top message authors • {guild.name}",
+        description=lines,
+        colour=discord.Colour.blurple(),
+    ))
+
+@client.hybrid_command(description="Rank members by total stored words.")
+async def topwords(ctx, limit: int = 10):
+    guild = analytics_guild(ctx)
+    limit = max(1, min(limit, 20))
+    cursor.execute(
+        """SELECT user_id, COALESCE(SUM(word_count), 0) AS total FROM message_activity
+        WHERE guild_id = ? GROUP BY user_id ORDER BY total DESC LIMIT ?""",
+        (guild.id, limit),
+    )
+    rows = cursor.fetchall()
+    lines = "\n".join(
+        f"{index}. <@{user_id}> — **{total:,}** words"
+        for index, (user_id, total) in enumerate(rows, 1)
+    ) or "No stored words yet."
+    await ctx.send(embed=discord.Embed(
+        title=f"Top word counts • {guild.name}",
+        description=lines,
+        colour=discord.Colour.blurple(),
+    ))
+
+@client.hybrid_command(description="Show the most-used words stored for this server.")
+async def wordcloud(ctx, limit: int = 15):
+    guild = analytics_guild(ctx)
+    limit = max(5, min(limit, 30))
+    try:
+        ignored_words = set(stopwords.words("english"))
+    except LookupError:
+        ignored_words = set()
+    cursor.execute("SELECT content FROM message_activity WHERE guild_id = ?", (guild.id,))
+    counts = defaultdict(int)
+    for (content,) in cursor.fetchall():
+        for word in re.findall(r"[A-Za-z][A-Za-z'-]{2,}", content.casefold()):
+            if word not in ignored_words:
+                counts[word] += 1
+    common = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:limit]
+    description = "\n".join(
+        f"{index}. `{word}` — **{count:,}**"
+        for index, (word, count) in enumerate(common, 1)
+    ) or "No words stored yet."
+    await ctx.send(embed=discord.Embed(
+        title=f"Most-used words • {guild.name}",
+        description=description,
+        colour=discord.Colour.blurple(),
+    ))
+
+async def member_event_report(ctx, event_type, title):
+    guild = analytics_guild(ctx)
+    cursor.execute(
+        """SELECT user_id, occurred_at FROM member_events
+        WHERE guild_id = ? AND event_type = ? ORDER BY id DESC LIMIT 20""",
+        (guild.id, event_type),
+    )
+    rows = cursor.fetchall()
+    lines = "\n".join(
+        f"<@{user_id}> — <t:{int(datetime.fromisoformat(occurred_at).timestamp())}:R>"
+        for user_id, occurred_at in rows
+    ) or f"No stored {event_type} events yet."
+    await ctx.send(embed=discord.Embed(title=f"{title} • {guild.name}", description=lines, colour=discord.Colour.blurple()))
+
+@client.hybrid_command(description="Show the latest member joins.")
+async def joins(ctx):
+    await member_event_report(ctx, "join", "Recent joins")
+
+@client.hybrid_command(description="Show the latest member leaves.")
+async def leaves(ctx):
+    await member_event_report(ctx, "leave", "Recent leaves")
+
+@client.hybrid_command(description="Rank members by stored voice-channel time.")
+async def voiceactivity(ctx, limit: int = 10):
+    guild = analytics_guild(ctx)
+    limit = max(1, min(limit, 20))
+    cursor.execute(
+        """SELECT user_id, SUM(
+            CASE WHEN left_at IS NULL THEN
+                (julianday('now') - julianday(joined_at)) * 86400
+            ELSE (julianday(left_at) - julianday(joined_at)) * 86400 END
+        ) AS seconds
+        FROM voice_activity WHERE guild_id = ? GROUP BY user_id
+        ORDER BY seconds DESC LIMIT ?""",
+        (guild.id, limit),
+    )
+    rows = cursor.fetchall()
+    lines = "\n".join(
+        f"{index}. <@{user_id}> — **{int(seconds // 3600)}h {int(seconds // 60) % 60}m**"
+        for index, (user_id, seconds) in enumerate(rows, 1)
+    ) or "No stored voice activity yet."
+    await ctx.send(embed=discord.Embed(title=f"Voice activity • {guild.name}", description=lines, colour=discord.Colour.blurple()))
+
+@client.hybrid_command(description="Show stored message edits and deletions.")
+async def messagechanges(ctx, limit: int = 15):
+    guild = analytics_guild(ctx)
+    limit = max(1, min(limit, 30))
+    cursor.execute(
+        """SELECT user_id, channel_id, edited_at, deleted_at FROM message_activity
+        WHERE guild_id = ? AND (edited_at IS NOT NULL OR deleted_at IS NOT NULL)
+        ORDER BY COALESCE(deleted_at, edited_at) DESC LIMIT ?""",
+        (guild.id, limit),
+    )
+    rows = cursor.fetchall()
+    lines = "\n".join(
+        f"<@{user_id}> in <#{channel_id}> — {'deleted' if deleted_at else 'edited'}"
+        for user_id, channel_id, edited_at, deleted_at in rows
+    ) or "No stored edits or deletions yet."
+    await ctx.send(embed=discord.Embed(title=f"Message changes • {guild.name}", description=lines, colour=discord.Colour.blurple()))
+
 
 def setup(client):
     client.add_command(servers)
@@ -2340,7 +2626,8 @@ def setup(client):
 INSIGHTS_ONLY_COMMANDS = {
     "help", "ping", "uptime", "serverhealth", "serverreport", "channelpulse",
     "roleinsights", "memberinsights", "memberactivity", "voiceinsights",
-    "timezone",
+    "timezone", "analytics", "topmessages", "topwords", "wordcloud",
+    "voiceactivity", "joins", "leaves", "messagechanges",
 }
 
 DISABLED_OVERLAPPING_COMMANDS = {
