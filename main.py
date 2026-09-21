@@ -29,6 +29,7 @@ import math
 import moment
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import quote
+from youtubesearchpython import VideosSearch
 
 load_dotenv()
 
@@ -277,18 +278,20 @@ insight_commands = [
 
 @client.hybrid_command()
 async def help(ctx):
-  pages = [
-      ("Available", [
-          ("urban [query]", "Looks up an Urban Dictionary definition"),
-          ("mock [message]", "Mocks a message"),
-          ("eball", "Answers a question randomly"),
-          ("uptime", "Shows bot uptime"),
-          ("analyse [quote]", "Analyses a quote"),
-          ("weather [location]", "Shows the weather"),
-          ("youtube [query]", "Searches YouTube"),
-      ]),
-      ("Insights", insight_commands),
+  active = {
+      command.name: command
+      for command in client.commands
+      if command.name not in DISABLED_OVERLAPPING_COMMANDS
+  }
+  entries = [
+      (name, command.help or command.description or "No description available.")
+      for name, command in sorted(active.items())
   ]
+  page_size = 8
+  pages = [
+      ("Commands", entries[index:index + page_size])
+      for index in range(0, len(entries), page_size)
+  ] or [("Commands", [("help", "Show this help menu.")])]
   view = CommandView(pages, ctx.author.id)
   view.message = await ctx.send(embed=view.current_embed(), view=view)
 
@@ -1072,15 +1075,23 @@ english_techniques_list = [
 
 @client.hybrid_command()
 async def analyse(ctx, *, quote):
+    quote = quote.strip()
+    if not quote:
+        await ctx.send(f"Usage: `{cmd_prefix}analyse <text to analyse>`")
+        return
     # Perform analysis on the quote
-    word_count = len(word_tokenize(quote))
+    try:
+        tokens = word_tokenize(quote)
+        stop_words = set(stopwords.words("english"))
+    except LookupError:
+        tokens = re.findall(r"\b[\w'-]+\b", quote)
+        stop_words = set()
+    word_count = len(tokens)
     character_count = len(quote)
     uppercase_count = sum(1 for char in quote if char.isupper())
     lowercase_count = sum(1 for char in quote if char.islower())
 
     # Tokenize the quote and remove stopwords
-    tokens = word_tokenize(quote)
-    stop_words = set(stopwords.words("english"))
     filtered_tokens = [token for token in tokens if token.lower() not in stop_words]
 
     mentioned_techniques = [technique for technique in english_techniques_list if technique in filtered_tokens]
@@ -1537,9 +1548,24 @@ async def weather(ctx, *, location=None):
             if cached_weather:
                 weather_cache.pop(cache_key, None)
 
-            weather_observation = obs.weather_at_place(location)
+            geocode_response = requests.get(
+                "https://api.openweathermap.org/geo/1.0/direct",
+                params={"q": location, "limit": 1, "appid": OPENWEATHER_API_KEY},
+                timeout=8,
+            )
+            geocode_response.raise_for_status()
+            places = geocode_response.json()
+            if not places:
+                await ctx.send(f":x: No weather location found for **{location}**.")
+                return
+
+            place = places[0]
+            weather_observation = obs.weather_at_coords(place["lat"], place["lon"])
             weather_entry = WeatherCacheEntry(
-                location=location,
+                location=", ".join(
+                    value for value in [place.get("name"), place.get("state"), place.get("country")]
+                    if value
+                ),
                 observation=weather_observation,
                 fetched_at=datetime.now(timezone.utc),
                 expires_at=time.monotonic() + WEATHER_CACHE_TTL_SECONDS,
@@ -1576,9 +1602,9 @@ async def weather(ctx, *, location=None):
         await ctx.send(embed=embed)
     except RuntimeError as error:
         await ctx.send(f":x: **{error}**")
-    except Exception:
+    except (requests.RequestException, KeyError, TypeError, ValueError):
         logging.exception("Weather lookup failed for %s", location)
-        await ctx.send(':x: **Unknown city. Please try again**')
+        await ctx.send(':x: **Weather lookup failed. Check the location and try again.**')
 
 @client.hybrid_command()
 async def invite(ctx):
@@ -1804,23 +1830,40 @@ async def emotions(ctx):
     await ctx.send(embed=embed)
 
 @client.hybrid_command()
-async def youtube(ctx, *, query):
+async def youtube(ctx, *, query=None):
+    query = (query or "").strip()
+    if not query:
+        await ctx.send(f"Usage: `{cmd_prefix}youtube <search terms>`")
+        return
 
-    # Search for videos based on the query
-    videos_search = VideosSearch(query, limit=1)
-    results = videos_search.result()
+    try:
+        results = await asyncio.to_thread(
+            lambda: VideosSearch(query, limit=1).result()
+        )
+        videos = results.get("result", [])
+        if not videos:
+            await ctx.send(f"No YouTube results found for **{query}**.")
+            return
 
-    # Check if there are any results
-    if len(results['result']) > 0:
-        video_url = results['result'][0]['link']
-        await ctx.send(f'Here is the first result: {video_url}')
-
-        # Retrieve video statistics
-        views = results['result'][0]['views']
-        comments = results['result'][0]['comments']
-        likes = results['result'][0]['likes']
-        dislikes = results['result'][0]['dislikes']
-        await ctx.send(f'Views: {views}, Comments: {comments}, Likes: {likes}, Dislikes: {dislikes}')
+        video = videos[0]
+        embed = discord.Embed(
+            title=video.get("title", "YouTube result")[:256],
+            url=video.get("link"),
+            description=f"Channel: **{video.get('channel', {}).get('name', 'Unknown')}**",
+            colour=discord.Colour.red(),
+        )
+        thumbnail = video.get("thumbnails", [])
+        if thumbnail:
+            embed.set_thumbnail(url=thumbnail[0].get("url"))
+        embed.add_field(name="Duration", value=video.get("duration") or "Unknown", inline=True)
+        embed.add_field(name="Views", value=str(video.get("viewCount", {}).get("short", "Unknown")), inline=True)
+        await ctx.send(embed=embed)
+    except Exception:
+        logging.exception("YouTube search failed for %s", query)
+        await ctx.send(
+            f"Search failed, but you can open YouTube results here: "
+            f"https://www.youtube.com/results?search_query={quote(query)}"
+        )
 
 @client.hybrid_command()
 async def leave(ctx, server_id: int):
