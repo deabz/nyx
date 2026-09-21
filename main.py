@@ -2386,8 +2386,8 @@ async def memberinsights(ctx, member: discord.Member = None):
     embed.add_field(name="Top role", value=member.top_role.mention, inline=True)
     await ctx.send(embed=embed)
 
-@client.hybrid_command(description="Show the current time in a city or IANA timezone.")
-async def timezone(ctx, location: str):
+@client.hybrid_command(name="timezone", description="Show the current time in a city or IANA timezone.")
+async def timezone_command(ctx, location: str):
     aliases = {"london": "Europe/London", "new york": "America/New_York", "nyc": "America/New_York",
                "los angeles": "America/Los_Angeles", "la": "America/Los_Angeles",
                "tokyo": "Asia/Tokyo", "sydney": "Australia/Sydney", "dubai": "Asia/Dubai",
