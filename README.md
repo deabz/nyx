@@ -1,6 +1,6 @@
-# nyx
+# ab
 
-nyx is an insights-only Discord bot for understanding server health, activity,
+ab is an insights-only Discord bot for understanding server health, activity,
 members, roles, and voice usage. It intentionally leaves moderation, sniping,
 entertainment, and general utility commands to the separate bot.
 
@@ -33,7 +33,8 @@ The bot uses the `MYSTIC_DISCORD_TOKEN` value from `.env`. Its health website
 is available at `http://localhost:8080/`, with a JSON check at
 `http://localhost:8080/health`.
 
-Slash commands are synced automatically on startup; prefix commands are
-disabled. The help menu uses discord.py UI components: a category dropdown
+Slash commands are synced globally and to every connected server on startup;
+prefix commands are disabled. Guild syncing makes new commands appear
+immediately instead of waiting for Discord's global propagation. The help menu uses discord.py UI components: a category dropdown
 plus Previous, Next, and Close buttons. Keep `.env` private and rotate the
 bot token if it is ever exposed.

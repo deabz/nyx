@@ -11,7 +11,7 @@ PAGE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>nyx | Status</title>
+  <title>ab | Status</title>
   <style>
     :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center;
@@ -29,10 +29,10 @@ PAGE = """
 </head>
 <body>
   <main>
-    <div class="brand">nyx monitoring</div>
+    <div class="brand">ab monitoring</div>
     <h1>Bot online</h1>
     <div class="status"><span class="dot"></span> Operational</div>
-    <p>nyx is connected and responding to Discord events. This page is the bot's public health check.</p>
+    <p>ab is connected and responding to Discord events. This page is the bot's public health check.</p>
     <footer>Health endpoint: <a href="/health">/health</a></footer>
   </main>
 </body>
@@ -47,7 +47,7 @@ def home():
 
 @app.route("/health")
 def health():
-    return jsonify({"bot": "nyx", "status": "online"})
+    return jsonify({"bot": "ab", "status": "online"})
 
 
 def run():

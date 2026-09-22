@@ -29,7 +29,7 @@ from youtubesearchpython import VideosSearch
 
 load_dotenv()
 
-bot_name = "nyx"
+bot_name = "ab"
 cmd_prefix = "-"
 OWNER_ID = 1029077015342612521
 mod_role = "."
@@ -237,8 +237,21 @@ async def on_ready():
         slash_commands = await client.tree.sync()
         if len(slash_commands) > 100:
             raise RuntimeError("Discord allows at most 100 global slash commands.")
+        for guild in client.guilds:
+            client.tree.copy_global_to(guild=guild)
+            guild_commands = await client.tree.sync(guild=guild)
+            logging.info(
+                "Synced %d slash commands to guild %s (%s).",
+                len(guild_commands),
+                guild.name,
+                guild.id,
+            )
         slash_commands_synced = True
-        logging.info("Synced %d slash commands.", len(slash_commands))
+        logging.info(
+            "Synced %d global slash commands and %d guild command sets.",
+            len(slash_commands),
+            len(client.guilds),
+        )
 
     print('\x1b[32m%s\x1b[0m' % '[SERVER] Server.js is Ready!')
     print('\x1b[37m%s\x1b[0m' % '---------------------------------------------------------')
@@ -282,7 +295,7 @@ def resolve_access_user(target, user_id):
         return discord.Object(id=int(user_id))
     return None
 
-@client.hybrid_command(name="allow", description="Allow a user to use nyx commands.")
+@client.hybrid_command(name="allow", description="Allow a user to use ab commands.")
 async def allow(ctx, target: discord.User = None, user_id: str = None):
     if ctx.author.id != OWNER_ID:
         raise AccessDenied()
@@ -291,9 +304,9 @@ async def allow(ctx, target: discord.User = None, user_id: str = None):
         await ctx.send("Usage: `/allow member:<@user>` or `/allow user_id:<id>`")
         return
     add_bot_access(user.id, ctx.author.id)
-    await ctx.send(f"✅ <@{user.id}> can now use nyx commands.")
+    await ctx.send(f"✅ <@{user.id}> can now use ab commands.")
 
-@client.hybrid_command(name="list", description="List users allowed to use nyx.")
+@client.hybrid_command(name="list", description="List users allowed to use ab.")
 async def access_list(ctx):
     if ctx.author.id != OWNER_ID:
         raise AccessDenied()
@@ -301,13 +314,13 @@ async def access_list(ctx):
     allowed = [f"<@{user_id}> (`{user_id}`)" for (user_id,) in cursor.fetchall()]
     owner = f"<@{OWNER_ID}> (`{OWNER_ID}`) — owner"
     embed = discord.Embed(
-        title="nyx access list",
+        title="ab access list",
         description="\n".join([owner] + allowed) if allowed else owner,
         colour=discord.Colour.blurple(),
     )
     await ctx.send(embed=embed)
 
-@client.hybrid_command(name="disallow", description="Remove a user's nyx access.")
+@client.hybrid_command(name="disallow", description="Remove a user's ab access.")
 async def disallow(ctx, target: discord.User = None, user_id: str = None):
     if ctx.author.id != OWNER_ID:
         raise AccessDenied()
@@ -320,7 +333,7 @@ async def disallow(ctx, target: discord.User = None, user_id: str = None):
         return
     cursor.execute("DELETE FROM bot_access WHERE user_id = ?", (user.id,))
     database.commit()
-    await ctx.send(f"✅ Removed nyx access from <@{user.id}>.")
+    await ctx.send(f"✅ Removed ab access from <@{user.id}>.")
 
 colours = [discord.Colour.dark_purple()]
 
@@ -1161,7 +1174,7 @@ async def on_message(message):
         return
 
     if client.user.mentioned_in(message):
-        embed = discord.Embed(title="Help", description="Use `/help` to view nyx commands.", colour=discord.Colour.blue())
+        embed = discord.Embed(title="Help", description="Use `/help` to view ab commands.", colour=discord.Colour.blue())
         await message.channel.send(embed=embed)
 
     if not message.author.bot:
@@ -2654,7 +2667,7 @@ async def cloud(ctx):
     _, edits, deletions = cursor.fetchone()
 
     dashboard = discord.Embed(
-        title=f"nyx cloud • {guild.name}",
+        title=f"ab cloud • {guild.name}",
         description="Complete stored server insights in one view.",
         colour=discord.Colour.from_rgb(93, 64, 242),
     )
@@ -2817,7 +2830,7 @@ async def messagechanges(ctx, limit: int = 15):
 def setup(client):
     client.add_command(servers)
 
-# nyx is an insights-only bot. The separate bot remains responsible for
+# ab is an insights-only bot. The separate bot remains responsible for
 # moderation, sniping, entertainment, and general utility commands.
 INSIGHTS_ONLY_COMMANDS = {
     "help", "ping", "uptime", "allow", "list", "disallow", "serverhealth", "serverreport", "channelpulse",
