@@ -18,7 +18,7 @@ For 24/7 uptime, deploy the project to an always-on Node host such as Render, Ra
 
 Slash commands are registered globally on startup, so Discord may take up to about an hour to propagate command changes. Run `/setup` once in each server as an Administrator. Setup creates the `ab-security` category, private `ab-logs` channel, and `ab Quarantine` role, applies quarantine denies to text channels, and saves the created IDs into `.env`. Keep `DRY_RUN=true` while testing if you want alerts without changing permissions or timing out users.
 
-The bot uses an **Invisible** presence while it continues operating, so members see it as offline. Change `PRESENCE_STATUS` to `online`, `idle`, `dnd`, or `invisible` if needed; `STREAMING_NAME` and `STREAMING_URL` customize the activity.
+The bot shows an **online Twitch streaming** presence named `Bearded Sexy Brown Boys` at `https://twitch.tv/a` by default. Change `PRESENCE_STATUS` to `online`, `idle`, `dnd`, or `invisible` if needed; `STREAMING_NAME` and `STREAMING_URL` customize the activity.
 
 ## Commands
 
