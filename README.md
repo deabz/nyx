@@ -20,6 +20,8 @@ Slash commands are registered globally on startup, so Discord may take up to abo
 
 The bot shows an **online Twitch streaming** presence named `Bearded Sexy Brown Boys` at `https://twitch.tv/a` by default. Change `PRESENCE_STATUS` to `online`, `idle`, `dnd`, or `invisible` if needed; `STREAMING_NAME` and `STREAMING_URL` customize the activity.
 
+Users listed in `OWNER_USER_IDS` are trusted by anti-nuke protection. Changes they make are still autosaved, but their audit-log actions do not trigger anti-nuke bans, quarantines, lockdowns, or cleanup responses.
+
 ## Commands
 
 Commands are slash commands only:

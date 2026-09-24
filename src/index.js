@@ -1599,7 +1599,7 @@ async function inspectAudit(guild, actionType, targetName) {
   if (!entry || Date.now() - entry.createdTimestamp > 15000 || !entry.executor) return;
   if (entry.id && state.processedAuditEntries.has(entry.id)) return;
   if (entry.id) state.processedAuditEntries.add(entry.id);
-  if (config.allowedUsers.has(entry.executor.id)) return;
+  if (config.ownerUsers.has(entry.executor.id) || config.allowedUsers.has(entry.executor.id)) return;
   const count = recordAction(guild.id, entry.executor.id, actionType);
   const immediateBotChannelDelete = actionType === AuditLogEvent.ChannelDelete && config.immediateChannelDeleteBan;
   if (count < limit && !immediateBotChannelDelete) return;
