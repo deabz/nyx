@@ -1,17 +1,8 @@
 services:
   - type: web
-    name: nyx
-    runtime: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
+    name: zy-discord-security
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
     healthCheckPath: /health
-    envVars:
-      - key: MYSTIC_DISCORD_TOKEN
-        sync: false
-      - key: OPENWEATHER_API_KEY
-        sync: false
-      - key: WEATHER_CACHE_TTL_SECONDS
-        value: "600"
-      - key: WEATHER_CACHE_MAX_ENTRIES
-        value: "100"
