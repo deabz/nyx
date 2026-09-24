@@ -1085,16 +1085,16 @@ async function ensureLogChannel(guild) {
     console.error(`[${guild.name}] Missing Manage Channels; cannot recreate the log channel.`);
     return null;
   }
-  const category = guild.channels.cache.find((channel) => channel.type === 4 && channel.name === "guardian-security");
+  const category = guild.channels.cache.find((channel) => channel.type === 4 && channel.name === "ab-security");
   const existing = guild.channels.cache.find((channel) =>
-    channel.isTextBased() && channel.name === "guardian-logs" && (!category || channel.parentId === category.id));
+    channel.isTextBased() && channel.name === "ab-logs" && (!category || channel.parentId === category.id));
   if (existing) {
     config.logChannelId = existing.id;
     persistEnvValue("LOG_CHANNEL_ID", existing.id);
     return existing;
   }
   const parent = category || await guild.channels.create({
-    name: "guardian-security",
+    name: "ab-security",
     type: 4,
     permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }],
     reason: "zy logging recovery",
@@ -1104,7 +1104,7 @@ async function ensureLogChannel(guild) {
   });
   if (!parent) return null;
   const channel = await guild.channels.create({
-    name: "guardian-logs",
+    name: "ab-logs",
     type: 0,
     parent: parent.id,
     topic: "zy security and action audit log. Do not delete.",
@@ -1361,36 +1361,36 @@ async function setupGuild(guild, actor) {
   saveGuildBackup(guild);
   if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageChannels) ||
       !guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
-    throw new Error("Guardian needs Manage Channels and Manage Roles to run setup.");
+    throw new Error("ab needs Manage Channels and Manage Roles to run setup.");
   }
-  let category = guild.channels.cache.find((channel) => channel.type === 4 && channel.name === "guardian-security");
+  let category = guild.channels.cache.find((channel) => channel.type === 4 && channel.name === "ab-security");
   if (!category) category = await guild.channels.create({
-    name: "guardian-security",
+    name: "ab-security",
     type: 4,
     permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }],
-    reason: "Guardian setup",
+    reason: "ab setup",
   });
   let role = config.quarantineRoleId ? await guild.roles.fetch(config.quarantineRoleId).catch(() => null) : null;
-  role ||= guild.roles.cache.find((candidate) => candidate.name === "Guardian Quarantine");
+  role ||= guild.roles.cache.find((candidate) => candidate.name === "ab Quarantine");
   if (!role) role = await guild.roles.create({
-    name: "Guardian Quarantine",
+    name: "ab Quarantine",
     color: 0xff4654,
     hoist: false,
     mentionable: false,
-    reason: "Guardian setup",
+    reason: "ab setup",
   });
   let logChannel = config.logChannelId ? await guild.channels.fetch(config.logChannelId).catch(() => null) : null;
-  if (!logChannel) logChannel = guild.channels.cache.find((channel) => channel.name === "guardian-logs" && channel.parentId === category.id);
+  if (!logChannel) logChannel = guild.channels.cache.find((channel) => channel.name === "ab-logs" && channel.parentId === category.id);
   if (!logChannel) logChannel = await guild.channels.create({
-    name: "guardian-logs",
+    name: "ab-logs",
     type: 0,
     parent: category.id,
-    topic: "Guardian security and action audit log. Do not delete.",
+    topic: "ab security and action audit log. Do not delete.",
     permissionOverwrites: [
       { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
       { id: guild.members.me.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.EmbedLinks] },
     ],
-    reason: "Guardian setup",
+    reason: "ab setup",
   });
   const protectedChannels = guild.channels.cache.filter((channel) => channel.isTextBased() && channel.id !== logChannel.id);
   for (const channel of protectedChannels.values()) {
@@ -1400,25 +1400,25 @@ async function setupGuild(guild, actor) {
       AddReactions: false,
       CreatePublicThreads: false,
       CreatePrivateThreads: false,
-    }, { reason: "Guardian quarantine protection" }).catch(() => {});
+    }, { reason: "ab quarantine protection" }).catch(() => {});
   }
   config.logChannelId = logChannel.id;
   config.quarantineRoleId = role.id;
   persistEnvValue("LOG_CHANNEL_ID", logChannel.id);
   persistEnvValue("QUARANTINE_ROLE_ID", role.id);
-  await logAction(guild, "Setup completed", "Created or reused Guardian category, log channel, and quarantine role.", actor?.tag || "Unknown administrator", `${logChannel.name} / ${role.name}`, "Manual setup command");
+  await logAction(guild, "Setup completed", "Created or reused ab category, log channel, and quarantine role.", actor?.tag || "Unknown administrator", `${logChannel.name} / ${role.name}`, "Manual setup command");
   return { category, role, logChannel };
 }
 
 async function quarantine(member, reason) {
   if (!member?.manageable || !config.quarantineRoleId || !config.autoQuarantine) return false;
   if (config.dryRun) {
-    await logAction(member.guild, "Quarantine member", "Dry-run: no role change made", "Guardian automated protection", member.user.tag, reason);
+    await logAction(member.guild, "Quarantine member", "Dry-run: no role change made", "ab automated protection", member.user.tag, reason);
     return true;
   }
   const added = await member.roles.add(config.quarantineRoleId, reason).then(() => true).catch(() => false);
   await log(member.guild, "Member quarantined", `${member.user.tag} (${member.id})\n${reason}`, 0xffa000);
-  await logAction(member.guild, "Quarantine member", added ? "Role added" : "Failed to add role", "Guardian automated protection", member.user.tag, reason);
+  await logAction(member.guild, "Quarantine member", added ? "Role added" : "Failed to add role", "ab automated protection", member.user.tag, reason);
   return added;
 }
 
@@ -1445,7 +1445,7 @@ async function stripNukeRoles(member, reason) {
       : await member.roles.remove(role, reason).then(() => true).catch(() => false);
     if (success) removed += 1;
   }
-  await logAction(member.guild, "Strip dangerous roles", config.dryRun ? `Dry-run: ${removed} roles identified` : `${removed} roles removed`, "Guardian", member.user.tag, reason);
+  await logAction(member.guild, "Strip dangerous roles", config.dryRun ? `Dry-run: ${removed} roles identified` : `${removed} roles removed`, "ab", member.user.tag, reason);
   return removed;
 }
 
@@ -1458,7 +1458,7 @@ async function setLockdown(guild, enabled, reason) {
     }
   }
   await log(guild, enabled ? "SERVER LOCKDOWN ENABLED" : "Server lockdown disabled", reason, enabled ? 0xff0000 : 0x35d07f);
-  await logAction(guild, enabled ? "Enable lockdown" : "Disable lockdown", config.dryRun ? "Dry-run: no permission changes made" : "Completed", "Guardian", guild.name, reason);
+  await logAction(guild, enabled ? "Enable lockdown" : "Disable lockdown", config.dryRun ? "Dry-run: no permission changes made" : "Completed", "ab", guild.name, reason);
 }
 
 function scheduleNukeUnlock(guild) {
@@ -1469,14 +1469,14 @@ function scheduleNukeUnlock(guild) {
     state.unlockTimers.delete(guild.id);
     if (!state.lockdowns.has(guild.id)) return;
     await setLockdown(guild, false, `Automatic unlock after ${config.nukeLockdownMs / 1000}s anti-nuke containment`);
-    await logAction(guild, "Automatic nuke lockdown release", "Server unlocked after containment cooldown", "Guardian", guild.name, "Configured AUTO_UNLOCK_AFTER_NUKE");
+    await logAction(guild, "Automatic nuke lockdown release", "Server unlocked after containment cooldown", "ab", guild.name, "Configured AUTO_UNLOCK_AFTER_NUKE");
   }, config.nukeLockdownMs);
   state.unlockTimers.set(guild.id, timer);
 }
 
 async function removeGuildWebhooks(guild, reason) {
   if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageWebhooks)) {
-    await logAction(guild, "Delete guild webhooks", "Skipped: missing Manage Webhooks permission", "Guardian", guild.name, reason);
+    await logAction(guild, "Delete guild webhooks", "Skipped: missing Manage Webhooks permission", "ab", guild.name, reason);
     return 0;
   }
   const webhooks = await guild.fetchWebhooks().catch(() => null);
@@ -1486,29 +1486,29 @@ async function removeGuildWebhooks(guild, reason) {
     const removed = config.dryRun ? true : await webhook.delete(reason).then(() => true).catch(() => false);
     if (removed) deleted += 1;
   }
-  await logAction(guild, "Delete guild webhooks", config.dryRun ? `Dry-run: ${deleted} would be deleted` : `${deleted} deleted`, "Guardian", guild.name, reason);
+  await logAction(guild, "Delete guild webhooks", config.dryRun ? `Dry-run: ${deleted} would be deleted` : `${deleted} deleted`, "ab", guild.name, reason);
   return deleted;
 }
 
 async function restoreGuildIdentity(guild, reason) {
   const backup = state.guildBackups[guild.id] || saveGuildBackup(guild);
   if (!backup.name && !backup.iconUrl) {
-    await logAction(guild, "Restore server identity", "Skipped: backup identity is not configured", "Guardian", guild.name, reason);
+    await logAction(guild, "Restore server identity", "Skipped: backup identity is not configured", "ab", guild.name, reason);
     return false;
   }
   if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-    await logAction(guild, "Restore server identity", "Skipped: missing Manage Guild permission", "Guardian", guild.name, reason);
+    await logAction(guild, "Restore server identity", "Skipped: missing Manage Guild permission", "ab", guild.name, reason);
     return false;
   }
   if (config.dryRun) {
-    await logAction(guild, "Restore server identity", "Dry-run: no changes made", "Guardian", guild.name, reason);
+    await logAction(guild, "Restore server identity", "Dry-run: no changes made", "ab", guild.name, reason);
     return true;
   }
   const changes = {};
   if (backup.name) changes.name = backup.name;
   if (backup.iconUrl) changes.icon = backup.iconUrl;
   const restored = await guild.edit(changes, reason).then(() => true).catch(() => false);
-  await logAction(guild, "Restore server identity", restored ? "Completed" : "Failed", "Guardian", guild.name, reason);
+  await logAction(guild, "Restore server identity", restored ? "Completed" : "Failed", "ab", guild.name, reason);
   return restored;
 }
 
@@ -1518,7 +1518,7 @@ async function cleanupNukeArtifacts(guild, executorId) {
   let deletedChannels = 0;
   let deletedRoles = 0;
   const skipChannelIds = new Set([config.logChannelId]);
-  const securityCategory = guild.channels.cache.find((channel) => channel.type === 4 && channel.name === "guardian-security");
+  const securityCategory = guild.channels.cache.find((channel) => channel.type === 4 && channel.name === "ab-security");
   if (securityCategory) skipChannelIds.add(securityCategory.id);
 
   if (guild.members.me.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
@@ -1527,7 +1527,7 @@ async function cleanupNukeArtifacts(guild, executorId) {
       if (entry.executor?.id !== executorId || entry.createdTimestamp < cutoff || !entry.targetId || skipChannelIds.has(entry.targetId)) continue;
       const channel = guild.channels.cache.get(entry.targetId);
       if (!channel) continue;
-      const removed = config.dryRun ? true : await channel.delete("Guardian nuke cleanup: attacker-created channel").then(() => true).catch(() => false);
+      const removed = config.dryRun ? true : await channel.delete("ab nuke cleanup: attacker-created channel").then(() => true).catch(() => false);
       if (removed) deletedChannels += 1;
     }
   }
@@ -1538,11 +1538,11 @@ async function cleanupNukeArtifacts(guild, executorId) {
       if (entry.executor?.id !== executorId || entry.createdTimestamp < cutoff || !entry.targetId || entry.targetId === guild.id || entry.targetId === config.quarantineRoleId) continue;
       const role = guild.roles.cache.get(entry.targetId);
       if (!role || role.managed) continue;
-      const removed = config.dryRun ? true : await role.delete("Guardian nuke cleanup: attacker-created role").then(() => true).catch(() => false);
+      const removed = config.dryRun ? true : await role.delete("ab nuke cleanup: attacker-created role").then(() => true).catch(() => false);
       if (removed) deletedRoles += 1;
     }
   }
-  await logAction(guild, "Clean attacker-created nuke artifacts", config.dryRun ? `Dry-run: ${deletedChannels} channels and ${deletedRoles} roles identified` : `${deletedChannels} channels and ${deletedRoles} roles deleted`, "Guardian", executorId, `Created by attacker within ${config.nukeCleanupWindowMs / 1000}s`);
+  await logAction(guild, "Clean attacker-created nuke artifacts", config.dryRun ? `Dry-run: ${deletedChannels} channels and ${deletedRoles} roles identified` : `${deletedChannels} channels and ${deletedRoles} roles deleted`, "ab", executorId, `Created by attacker within ${config.nukeCleanupWindowMs / 1000}s`);
 }
 
 async function handleMassMention(message) {
@@ -1560,8 +1560,8 @@ async function handleMassMention(message) {
   await restoreGuildIdentity(message.guild, "Mass mention containment");
   const member = message.member;
   if (config.autoBanMassMentioners && member?.bannable) {
-    const banned = config.dryRun ? true : await member.ban({ deleteMessageSeconds: 0, reason: "Guardian mass mention abuse" }).then(() => true).catch(() => false);
-    await logAction(message.guild, "Ban mass mentioner", config.dryRun ? "Dry-run: no ban made" : (banned ? "Completed" : "Failed"), "Guardian", message.author.tag, reason);
+    const banned = config.dryRun ? true : await member.ban({ deleteMessageSeconds: 0, reason: "ab mass mention abuse" }).then(() => true).catch(() => false);
+    await logAction(message.guild, "Ban mass mentioner", config.dryRun ? "Dry-run: no ban made" : (banned ? "Completed" : "Failed"), "ab", message.author.tag, reason);
   } else {
     await quarantine(member, "Mass mention abuse detected.");
   }
@@ -1595,17 +1595,17 @@ async function inspectAudit(guild, actionType, targetName) {
       if (config.autoBanAttackers && member.bannable) {
         const banned = config.dryRun
           ? true
-          : await member.ban({ deleteMessageSeconds: 0, reason: `Guardian anti-nuke bot: ${targetName}` }).then(() => true).catch(() => false);
-        await logAction(guild, immediateBotChannelDelete ? "Immediate ban: bot deleted a channel" : "Ban anti-nuke bot", config.dryRun ? "Dry-run: no ban made" : (banned ? "Completed" : "Failed"), "Guardian", member.user.tag, immediateBotChannelDelete ? "First confirmed channel deletion" : `Exceeded ${targetName} limit`);
+          : await member.ban({ deleteMessageSeconds: 0, reason: `ab anti-nuke bot: ${targetName}` }).then(() => true).catch(() => false);
+        await logAction(guild, immediateBotChannelDelete ? "Immediate ban: bot deleted a channel" : "Ban anti-nuke bot", config.dryRun ? "Dry-run: no ban made" : (banned ? "Completed" : "Failed"), "ab", member.user.tag, immediateBotChannelDelete ? "First confirmed channel deletion" : `Exceeded ${targetName} limit`);
       } else {
-        await logAction(guild, "Ban anti-nuke bot", "Skipped: not bannable or disabled", "Guardian", member.user.tag, `Exceeded ${targetName} limit`);
+        await logAction(guild, "Ban anti-nuke bot", "Skipped: not bannable or disabled", "ab", member.user.tag, `Exceeded ${targetName} limit`);
       }
     } else {
       if (!config.dryRun && member.moderatable) {
-      const timedOut = await member.timeout(24 * 60 * 60 * 1000, `Guardian anti-nuke: ${targetName}`).then(() => true).catch(() => false);
-      await logAction(guild, "Timeout suspected attacker", timedOut ? "Completed" : "Failed", "Guardian", member.user.tag, `Exceeded ${targetName} limit`);
+      const timedOut = await member.timeout(24 * 60 * 60 * 1000, `ab anti-nuke: ${targetName}`).then(() => true).catch(() => false);
+      await logAction(guild, "Timeout suspected attacker", timedOut ? "Completed" : "Failed", "ab", member.user.tag, `Exceeded ${targetName} limit`);
       }
-      await stripNukeRoles(member, `Guardian anti-nuke: ${targetName}`);
+      await stripNukeRoles(member, `ab anti-nuke: ${targetName}`);
       await quarantine(member, `Exceeded ${targetName} action limit (${count}/${limit}).`);
     }
   }
@@ -1696,20 +1696,20 @@ client.on(Events.GuildMemberAdd, async (member) => {
     if (config.autoLockdown) await setLockdown(member.guild, true, `${joins.length} joins detected in ${config.joinWindowMs / 1000}s`);
     await quarantine(member, "Join-raid protection triggered.");
     await log(member.guild, "JOIN RAID DETECTED", `${joins.length} members joined in a short window.`, 0xff0000);
-    await logAction(member.guild, "Detect join raid", "Lockdown and quarantine response started", "Guardian automated protection", member.user.tag, `${joins.length} joins in ${config.joinWindowMs / 1000}s`);
+    await logAction(member.guild, "Detect join raid", "Lockdown and quarantine response started", "ab automated protection", member.user.tag, `${joins.length} joins in ${config.joinWindowMs / 1000}s`);
     if (member.user.bot && config.autoBanRaidBots && member.bannable) {
       const banned = config.dryRun
         ? true
-        : await member.ban({ deleteMessageSeconds: 0, reason: "Guardian raid protection: bot joined during detected raid" }).then(() => true).catch(() => false);
-      await logAction(member.guild, "Ban raid bot", config.dryRun ? "Dry-run: no ban made" : (banned ? "Completed" : "Failed"), "Guardian automated protection", member.user.tag, "Bot joined during detected raid");
+        : await member.ban({ deleteMessageSeconds: 0, reason: "ab raid protection: bot joined during detected raid" }).then(() => true).catch(() => false);
+      await logAction(member.guild, "Ban raid bot", config.dryRun ? "Dry-run: no ban made" : (banned ? "Completed" : "Failed"), "ab automated protection", member.user.tag, "Bot joined during detected raid");
     }
   }
   if (state.lockdowns.has(member.guild.id)) {
     if (member.user.bot && config.autoBanRaidBots && member.bannable) {
       const banned = config.dryRun
         ? true
-        : await member.ban({ deleteMessageSeconds: 0, reason: "Guardian lockdown: bot join blocked" }).then(() => true).catch(() => false);
-      await logAction(member.guild, "Block bot during lockdown", config.dryRun ? "Dry-run: no ban made" : (banned ? "Completed" : "Failed"), "Guardian automated protection", member.user.tag, "Bot joined while server was locked down");
+        : await member.ban({ deleteMessageSeconds: 0, reason: "ab lockdown: bot join blocked" }).then(() => true).catch(() => false);
+      await logAction(member.guild, "Block bot during lockdown", config.dryRun ? "Dry-run: no ban made" : (banned ? "Completed" : "Failed"), "ab automated protection", member.user.tag, "Bot joined while server was locked down");
     } else {
       await quarantine(member, "Server is in lockdown.");
     }

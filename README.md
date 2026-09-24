@@ -16,7 +16,7 @@ zy includes a small status website and health endpoint. Open `http://localhost:3
 
 For 24/7 uptime, deploy the project to an always-on Node host such as Render, Railway, Fly.io, or a VPS. `render.yaml` is included for Render. Set `DISCORD_TOKEN` and the rest of your environment variables as host secrets; never commit `.env`. On Render, use the `/health` health-check path and an always-on paid instance—free services may sleep and cannot guarantee continuous Discord monitoring.
 
-Slash commands are registered globally on startup, so Discord may take up to about an hour to propagate command changes. Run `/setup` once in each server as an Administrator. Setup creates the `guardian-security` category, private `guardian-logs` channel, and `Guardian Quarantine` role, applies quarantine denies to text channels, and saves the created IDs into `.env`. Keep `DRY_RUN=true` while testing if you want alerts without changing permissions or timing out users.
+Slash commands are registered globally on startup, so Discord may take up to about an hour to propagate command changes. Run `/setup` once in each server as an Administrator. Setup creates the `ab-security` category, private `ab-logs` channel, and `ab Quarantine` role, applies quarantine denies to text channels, and saves the created IDs into `.env`. Keep `DRY_RUN=true` while testing if you want alerts without changing permissions or timing out users.
 
 The bot uses an **Invisible** presence while it continues operating, so members see it as offline. Change `PRESENCE_STATUS` to `online`, `idle`, `dnd`, or `invisible` if needed; `STREAMING_NAME` and `STREAMING_URL` customize the activity.
 
@@ -50,7 +50,7 @@ The legacy Nyx command set is also available as slash commands, including `/ping
 
 The log channel receives structured records for setup, lockdowns, quarantines, timeouts, allowlist changes, raid detections, and anti-nuke responses, including actor, target, result, and reason.
 
-Confirmed anti-nuke executors can be automatically banned with `AUTO_BAN_ATTACKERS=true`, and bots joining during a detected raid or lockdown can be blocked with `AUTO_BAN_RAID_BOTS=true`. Guardian deliberately does not mass-ban all raid members: human joins are quarantined and the server is locked down to avoid irreversible false positives.
+Confirmed anti-nuke executors can be automatically banned with `AUTO_BAN_ATTACKERS=true`, and bots joining during a detected raid or lockdown can be blocked with `AUTO_BAN_RAID_BOTS=true`. ab deliberately does not mass-ban all raid members: human joins are quarantined and the server is locked down to avoid irreversible false positives.
 
 Channel deletion protection defaults to `ACTION_LIMIT_CHANNEL_DELETE=1`: the first confirmed unauthorized channel deletion triggers the anti-nuke response immediately. The executor must not be allowlisted, and the bot's role must be above the executor's role for Discord to allow the ban.
 
@@ -60,15 +60,15 @@ Confirmed anti-nuke bots are banned when possible. Confirmed human attackers are
 
 After a confirmed anti-nuke response, lockdown automatically releases after `NUKE_LOCKDOWN_SECONDS` (60 seconds by default) when `AUTO_UNLOCK_AFTER_NUKE=true`. Set it to `false` if you want lockdown to remain until an administrator runs `/lockdown off`.
 
-Mass-mention containment detects unauthorized `@everyone`/`@here` messages, deletes the triggering message, locks down the server, deletes guild webhooks, optionally bans the responsible member, and restores the saved server identity. Guardian snapshots each guild's name/icon in `data/guild-backups.json` while online; you can override it with `BACKUP_GUILD_NAME` and `BACKUP_GUILD_ICON_URL`. It does **not** purge all server history. Grant Manage Webhooks and Manage Guild if you want those recovery actions enabled.
+Mass-mention containment detects unauthorized `@everyone`/`@here` messages, deletes the triggering message, locks down the server, deletes guild webhooks, optionally bans the responsible member, and restores the saved server identity. ab snapshots each guild's name/icon in `data/guild-backups.json` while online; you can override it with `BACKUP_GUILD_NAME` and `BACKUP_GUILD_ICON_URL`. It does **not** purge all server history. Grant Manage Webhooks and Manage Guild if you want those recovery actions enabled.
 
-Important limitation: Discord removes a bot's ability to act after the bot is banned or kicked. Guardian therefore cannot rename a server after its own removal; it saves the identity beforehand and restores it during an active containment event.
+Important limitation: Discord removes a bot's ability to act after the bot is banned or kicked. ab therefore cannot rename a server after its own removal; it saves the identity beforehand and restores it during an active containment event.
 
 `/backup` creates a local snapshot in `data/zy.sqlite` containing all recoverable server data: identity/settings, roles, channels/categories and permission overwrites, emojis, stickers, scheduled events, bans, and webhook metadata. Webhook tokens and other secrets are never stored. The SQLite database uses WAL journaling and survives bot restarts and normal process crashes. It is non-destructive. Discord does not provide a complete export of message history, member passwords/tokens, or every managed integration, so those cannot be backed up by a bot.
 
 The same snapshot is also created automatically at startup and after Discord reports guild, channel, role, emoji, sticker, scheduled-event, ban, or webhook changes. A periodic integrity scan (configured by `BACKUP_SCAN_INTERVAL_SECONDS`, five minutes by default) catches changes whose gateway event was missed. Snapshots are briefly debounced so a burst of related changes is saved once, and detected differences are written to the security log channel. The original guild name and icon remain separately preserved for identity restoration. Legacy JSON backups are read once as a migration fallback.
 
-When a nuke is confirmed, `AUTO_CLEANUP_NUKE_ARTIFACTS=true` removes only channels and roles created by the confirmed attacker within `NUKE_CLEANUP_WINDOW_SECONDS` (60 seconds by default). Guardian preserves `@everyone`, managed roles, the quarantine role, and Guardian's own security category/log channel.
+When a nuke is confirmed, `AUTO_CLEANUP_NUKE_ARTIFACTS=true` removes only channels and roles created by the confirmed attacker within `NUKE_CLEANUP_WINDOW_SECONDS` (60 seconds by default). ab preserves `@everyone`, managed roles, the quarantine role, and ab's own security category/log channel.
 
 Logging coalesces identical repeated events for `LOG_DEDUPE_WINDOW_SECONDS` (5 seconds by default). The first event is logged immediately, and a summary reports the number of duplicate events suppressed so the log channel stays readable without hiding activity.
 
