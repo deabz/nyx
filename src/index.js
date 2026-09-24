@@ -14,6 +14,7 @@ const {
   EmbedBuilder,
   Events,
   GatewayIntentBits,
+  ModalBuilder,
   PermissionsBitField,
   REST,
   Routes,
@@ -26,7 +27,7 @@ const csv = (value) => new Set((value || "").split(",").map((x) => x.trim()).fil
 const bool = (value, fallback) => value === undefined ? fallback : value.toLowerCase() === "true";
 const num = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const config = {
-  brandName: "zy",
+  brandName: "ab",
   webPort: num(process.env.PORT, 3000),
   token: process.env.DISCORD_TOKEN,
   weatherApiKey: process.env.OPENWEATHER_API_KEY || "",
@@ -73,7 +74,7 @@ const config = {
 const backupPath = path.resolve(__dirname, "..", "data", "guild-backups.json");
 const savedBackups = fs.existsSync(backupPath) ? JSON.parse(fs.readFileSync(backupPath, "utf8")) : {};
 const serverBackupPath = path.resolve(__dirname, "..", "data", "server-backups.json");
-const databasePath = path.resolve(__dirname, "..", "data", "zy.sqlite");
+const databasePath = path.resolve(__dirname, "..", "data", "ab.sqlite");
 fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 const database = new DatabaseSync(databasePath);
 database.exec(`
@@ -214,13 +215,13 @@ function startStatusWebsite() {
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     response.end(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>zy status</title><style>
+<title>ab status</title><style>
 :root{color-scheme:dark}body{margin:0;background:#080b14;color:#eef2ff;font:16px system-ui,sans-serif}
 main{max-width:760px;margin:8vh auto;padding:32px}h1{font-size:48px;margin:0 0 8px}
 .sub{color:#9ca8c7;margin-bottom:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
 .card{background:#11182a;border:1px solid #263252;border-radius:16px;padding:20px}.label{color:#93a4ce;font-size:13px;text-transform:uppercase;letter-spacing:.08em}
 .value{font-size:24px;margin-top:8px}.ok{color:#62e6a5}.warn{color:#ffd166}footer{color:#7180a3;margin-top:28px;font-size:13px}
-</style></head><body><main><h1>🛡️ zy</h1><div class="sub">Discord security service status</div>
+</style></head><body><main><h1>🛡️ ab</h1><div class="sub">Discord security service status</div>
 <div class="grid"><div class="card"><div class="label">Connection</div><div class="value ${status.status === "online" ? "ok" : "warn"}">${status.status}</div></div>
 <div class="card"><div class="label">Protection</div><div class="value">${status.enforcement}</div></div>
 <div class="card"><div class="label">Servers</div><div class="value">${status.guilds}</div></div>
@@ -229,16 +230,16 @@ main{max-width:760px;margin:8vh auto;padding:32px}h1{font-size:48px;margin:0 0 8
 <div class="card"><div class="label">Incidents</div><div class="value">${status.incidents}</div></div></div>
 <footer>Live health endpoint: <code>/health</code> · Updated ${status.timestamp}</footer></main></body></html>`);
   });
-  server.listen(config.webPort, "0.0.0.0", () => console.log(`zy status website listening on port ${config.webPort}`));
+  server.listen(config.webPort, "0.0.0.0", () => console.log(`ab status website listening on port ${config.webPort}`));
   server.on("error", (error) => console.error(`Status website error: ${error.message}`));
 }
 
 const commands = [
-  new SlashCommandBuilder().setName("help").setDescription("Open the complete zy command and security guide."),
-  new SlashCommandBuilder().setName("security").setDescription("Show zy security status."),
+  new SlashCommandBuilder().setName("help").setDescription("Open the complete ab command and security guide."),
+  new SlashCommandBuilder().setName("security").setDescription("Show ab security status."),
   new SlashCommandBuilder().setName("offline").setDescription("Set the bot's visible status to offline."),
   new SlashCommandBuilder().setName("online").setDescription("Set the bot online and show its Twitch stream."),
-  new SlashCommandBuilder().setName("setup").setDescription("Create zy security infrastructure."),
+  new SlashCommandBuilder().setName("setup").setDescription("Create ab security infrastructure."),
   new SlashCommandBuilder().setName("backup").setDescription("Snapshot the server name, icon, roles, channels, and permissions."),
   new SlashCommandBuilder().setName("lockdown").setDescription("Lock or unlock the server.")
     .addStringOption((o) => o.setName("mode").setDescription("Lockdown mode").setRequired(true)
@@ -417,18 +418,18 @@ const HELP_CATEGORIES = [
 ];
 
 function helpPages(search = "") {
-  const commandMap = new Map(commands.map((command) => [command.name, command]));
+  const activeCommands = new Map(commands.map((command) => [command.name, command]));
   const normalizedSearch = search.trim().toLowerCase();
   const pages = [];
   for (const category of HELP_CATEGORIES) {
     const entries = category.commands
-      .map((name) => commandMap.get(name))
+      .map((name) => activeCommands.get(name))
       .filter((command) => command && (!normalizedSearch ||
         command.name.includes(normalizedSearch) || command.description.toLowerCase().includes(normalizedSearch)));
     if (entries.length) pages.push({ title: category.name, entries });
   }
   const categorized = new Set(HELP_CATEGORIES.flatMap((category) => category.commands));
-  const uncategorized = commands.filter((command) =>
+  const uncategorized = [...activeCommands.values()].filter((command) =>
     !categorized.has(command.name) &&
     (!normalizedSearch || command.name.includes(normalizedSearch) || command.description.toLowerCase().includes(normalizedSearch)));
   if (uncategorized.length) pages.push({ title: "Other", entries: uncategorized });
@@ -440,7 +441,7 @@ function helpEmbed(page, pageIndex, totalPages, search = "") {
     ? page.entries.map((command) => `\`/${command.name}\` — ${command.description}`).join("\n")
     : `No commands matched \`${search}\`.`;
   return new EmbedBuilder()
-    .setTitle("🛡️ zy Security Center")
+    .setTitle("🛡️ ab Security Center")
     .setDescription(search
       ? `Search results for \`${search}\``
       : "Your server's defensive command center. Commands are grouped by category.")
@@ -593,7 +594,7 @@ async function handleAnalyticsCommand(interaction, name) {
     const joins = database.prepare("SELECT COUNT(*) AS count FROM member_events WHERE guild_id = ? AND event_type = 'join'").get(guildId).count;
     const leaves = database.prepare("SELECT COUNT(*) AS count FROM member_events WHERE guild_id = ? AND event_type = 'leave'").get(guildId).count;
     const voice = database.prepare("SELECT COUNT(*) AS count FROM voice_activity WHERE guild_id = ?").get(guildId).count;
-    return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`${name === "cloud" ? "zy cloud" : "Stored analytics"} • ${guild.name}`).setColor(0x5865f2).addFields(
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`${name === "cloud" ? "ab cloud" : "Stored analytics"} • ${guild.name}`).setColor(0x5865f2).addFields(
       { name: "Messages", value: String(totals.messages), inline: true }, { name: "Authors", value: String(totals.authors), inline: true },
       { name: "Words", value: String(totals.words), inline: true }, { name: "Joins", value: String(joins), inline: true },
       { name: "Leaves", value: String(leaves), inline: true }, { name: "Voice sessions", value: String(voice), inline: true },
@@ -943,7 +944,7 @@ async function handleLegacyInteraction(interaction) {
     state.blacklist[type === "user" ? "users" : "guilds"].set(options.getString("target"), options.getString("reason") || "Not specified");
     return interaction.reply(`${type} \`${options.getString("target")}\` was added to the blacklist.`);
   }
-  if (name === "secret") return interaction.reply({ embeds: [new EmbedBuilder().setTitle("zy command reference").setDescription("Use `/help` for active commands. Security automation runs automatically; destructive mass-action commands from the legacy bot are intentionally not included.").setColor(0x5865f2)] });
+  if (name === "secret") return interaction.reply({ embeds: [new EmbedBuilder().setTitle("ab command reference").setDescription("Use `/help` for active commands. Security automation runs automatically; destructive mass-action commands from the legacy bot are intentionally not included.").setColor(0x5865f2)] });
   if (name === "weather") {
     if (!config.weatherApiKey) return interaction.reply({ content: "Weather is not configured. Add OPENWEATHER_API_KEY to `.env`.", ephemeral: true });
     const location = options.getString("location");
@@ -1022,11 +1023,11 @@ async function sendLogEmbed(guild, embed) {
   if (!channel?.isTextBased()) {
     channel = await ensureLogChannel(guild);
     if (channel) {
-      console.log(`[${guild.name}] zy recreated the missing log channel (${channel.id}).`);
+      console.log(`[${guild.name}] ab recreated the missing log channel (${channel.id}).`);
       await channel.send({
         embeds: [new EmbedBuilder()
-          .setTitle("zy logging restored")
-          .setDescription("The configured log channel was missing, so zy created a replacement and resumed logging.")
+          .setTitle("ab logging restored")
+          .setDescription("The configured log channel was missing, so ab created a replacement and resumed logging.")
           .setColor(0x35d07f)
           .setTimestamp()],
       }).catch((error) => console.error(`[${guild.name}] Could not write log-recovery event: ${error.message}`));
@@ -1036,7 +1037,7 @@ async function sendLogEmbed(guild, embed) {
     await channel.send({ embeds: [embed] }).catch((error) => console.error(`[${guild.name}] Log send failed: ${error.message}`));
     return true;
   }
-  console.error(`[${guild.name}] zy could not create or access a log channel.`);
+  console.error(`[${guild.name}] ab could not create or access a log channel.`);
   return false;
 }
 
@@ -1055,7 +1056,7 @@ async function log(guild, title, description, color = 0xff4654, fields = []) {
         const suppressed = existing.count - 1;
         if (suppressed > 0) {
           const summary = new EmbedBuilder()
-            .setTitle("zy log summary")
+            .setTitle("ab log summary")
             .setDescription(`Repeated event was coalesced to reduce channel flooding.`)
             .setColor(0x99aab5)
             .addFields(
@@ -1065,7 +1066,7 @@ async function log(guild, title, description, color = 0xff4654, fields = []) {
             )
             .setTimestamp();
           await sendLogEmbed(guild, summary);
-          console.log(`[${guild.name}] zy log summary: suppressed ${suppressed} duplicate "${title}" events.`);
+          console.log(`[${guild.name}] ab log summary: suppressed ${suppressed} duplicate "${title}" events.`);
         }
       }, config.logDedupeWindowMs);
     }
@@ -1078,8 +1079,8 @@ async function log(guild, title, description, color = 0xff4654, fields = []) {
 }
 
 async function logAction(guild, action, result, actor, target = "N/A", reason = "N/A") {
-  return log(guild, "zy action log", `${action}\n**Result:** ${result}`, 0x5865f2, [
-    { name: "Actor", value: actor || "zy automated protection", inline: true },
+  return log(guild, "ab action log", `${action}\n**Result:** ${result}`, 0x5865f2, [
+    { name: "Actor", value: actor || "ab automated protection", inline: true },
     { name: "Target", value: target, inline: true },
     { name: "Reason", value: reason, inline: false },
   ]);
@@ -1110,7 +1111,7 @@ async function ensureLogChannel(guild) {
     name: "ab-security",
     type: 4,
     permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }],
-    reason: "zy logging recovery",
+    reason: "ab logging recovery",
   }).catch((error) => {
     console.error(`[${guild.name}] Could not create logging category: ${error.message}`);
     return null;
@@ -1120,12 +1121,12 @@ async function ensureLogChannel(guild) {
     name: "ab-logs",
     type: 0,
     parent: parent.id,
-    topic: "zy security and action audit log. Do not delete.",
+    topic: "ab security and action audit log. Do not delete.",
     permissionOverwrites: [
       { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
       { id: guild.members.me.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.EmbedLinks] },
     ],
-    reason: "zy logging recovery",
+    reason: "ab logging recovery",
   }).catch((error) => {
     console.error(`[${guild.name}] Could not recreate log channel: ${error.message}`);
     return null;
@@ -1791,7 +1792,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     });
   }
   if (interaction.commandName === "security") {
-    return interaction.reply(`zy is active. Lockdown: **${state.lockdowns.has(interaction.guild.id) ? "ON" : "OFF"}** | Dry run: **${config.dryRun ? "ON" : "OFF"}`);
+    return interaction.reply(`ab is active. Lockdown: **${state.lockdowns.has(interaction.guild.id) ? "ON" : "OFF"}** | Dry run: **${config.dryRun ? "ON" : "OFF"}`);
   }
   if (interaction.commandName === "offline" || interaction.commandName === "online") {
     if (!config.ownerUsers.has(interaction.user.id)) {

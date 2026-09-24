@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: zy-discord-security
+    name: ab-discord-security
     runtime: node
     plan: starter
     buildCommand: npm install

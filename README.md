@@ -1,4 +1,4 @@
-# zy
+# ab
 
 A defensive Discord.js anti-raid and anti-nuke bot. It monitors join bursts and audit-log activity, automatically quarantines suspicious members, can lock down text channels, posts incident logs, and exposes every core action through slash commands.
 
@@ -12,7 +12,7 @@ A defensive Discord.js anti-raid and anti-nuke bot. It monitors join bursts and 
 
 ## Website and 24/7 hosting
 
-zy includes a small status website and health endpoint. Open `http://localhost:3000/` locally, or use `/health` for a hosting monitor. Set `PORT` in `.env` if your host provides a port.
+ab includes a small status website and health endpoint. Open `http://localhost:3000/` locally, or use `/health` for a hosting monitor. Set `PORT` in `.env` if your host provides a port.
 
 For 24/7 uptime, deploy the project to an always-on Node host such as Render, Railway, Fly.io, or a VPS. `render.yaml` is included for Render. Set `DISCORD_TOKEN` and the rest of your environment variables as host secrets; never commit `.env`. On Render, use the `/health` health-check path and an always-on paid instance—free services may sleep and cannot guarantee continuous Discord monitoring.
 
