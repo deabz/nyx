@@ -35,6 +35,19 @@ Commands are slash commands only:
 
 Prefix messages are ignored except for the automatic mass-mention containment check.
 
+The legacy Nyx command set is also available as slash commands, including `/ping`,
+`/uptime`, `/urban`, `/suggest`, `/nick`, `/nickreset`, `/snipe`, `/whois`,
+`/roleinfo`, `/botinfo`, `/stats`, `/warn`, `/warns`, `/kick`, `/mute`,
+`/muterole`, `/ban`, `/unban`, `/unmute`, `/tempmute`, `/delete`, `/mock`,
+`/eball`, `/say`, `/mimic`, `/stop`, `/afk`, `/purge`, `/av`, `/analyse`,
+`/wl`, `/bl`, `/unbl`, `/status`, `/secret`, `/weather`, `/invite`,
+`/userinfo`, `/servers`, `/inv`, `/calc`, `/hug`, `/kiss`, `/emotions`,
+`/youtube`, `/leave`, `/banlist`, `/role`, `/randommember`, `/memberinsights`,
+`/serverhealth`, `/channelpulse`, `/serverreport`, `/roleinsights`,
+`/memberactivity`, `/voiceinsights`, `/analytics`, `/cloud`, `/topmessages`,
+`/topwords`, `/wordcloud`, `/joins`, `/leaves`, `/voiceactivity`,
+`/messagechanges`, `/timezone`, `/define`, `/poll`, and `/remind`.
+
 The log channel receives structured records for setup, lockdowns, quarantines, timeouts, allowlist changes, raid detections, and anti-nuke responses, including actor, target, result, and reason.
 
 Confirmed anti-nuke executors can be automatically banned with `AUTO_BAN_ATTACKERS=true`, and bots joining during a detected raid or lockdown can be blocked with `AUTO_BAN_RAID_BOTS=true`. Guardian deliberately does not mass-ban all raid members: human joins are quarantined and the server is locked down to avoid irreversible false positives.

@@ -24,6 +24,8 @@ const config = {
   brandName: "zy",
   webPort: num(process.env.PORT, 3000),
   token: process.env.DISCORD_TOKEN,
+  weatherApiKey: process.env.OPENWEATHER_API_KEY || "",
+  suggestionChannelId: process.env.SUGGESTION_CHANNEL_ID || "",
   devGuildId: process.env.DEV_GUILD_ID || "",
   logChannelId: process.env.LOG_CHANNEL_ID || "",
   quarantineRoleId: process.env.QUARANTINE_ROLE_ID || "",
@@ -77,6 +79,32 @@ database.exec(`
     identity_json TEXT NOT NULL,
     snapshot_json TEXT,
     saved_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS message_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    edited_at TEXT,
+    deleted_at TEXT,
+    word_count INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS member_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    occurred_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS voice_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    channel_id TEXT,
+    user_id TEXT NOT NULL,
+    joined_at TEXT NOT NULL,
+    left_at TEXT
   );
 `);
 
@@ -142,6 +170,11 @@ const state = {
   logBuckets: new Map(),
   backupTimers: new Map(),
   backupQueues: new Map(),
+  warnings: new Map(),
+  mutedUntil: new Map(),
+  mimicUsers: new Set(),
+  afkUsers: new Map(),
+  snipes: new Map(),
 };
 
 function statusPayload() {
@@ -208,7 +241,147 @@ const commands = [
     .addUserOption((o) => o.setName("user").setDescription("Member to quarantine").setRequired(true)),
   new SlashCommandBuilder().setName("allow").setDescription("Allow a user to bypass automated protection.")
     .addUserOption((o) => o.setName("user").setDescription("User to allow").setRequired(true)),
+  new SlashCommandBuilder().setName("list").setDescription("List users allowed to use the bot."),
+  new SlashCommandBuilder().setName("disallow").setDescription("Remove a user's bot access.")
+    .addUserOption((o) => o.setName("user").setDescription("User to remove").setRequired(true)),
   new SlashCommandBuilder().setName("incident").setDescription("Show recent security incidents."),
+  new SlashCommandBuilder().setName("ping").setDescription("Show bot latency."),
+  new SlashCommandBuilder().setName("uptime").setDescription("Show bot uptime."),
+  new SlashCommandBuilder().setName("urban").setDescription("Look up an Urban Dictionary definition.")
+    .addStringOption((o) => o.setName("query").setDescription("Term to look up").setRequired(false)),
+  new SlashCommandBuilder().setName("suggest").setDescription("Send a suggestion to the configured suggestion channel.")
+    .addStringOption((o) => o.setName("suggestion").setDescription("Suggestion text").setRequired(true)),
+  new SlashCommandBuilder().setName("nick").setDescription("Change a member nickname.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true))
+    .addStringOption((o) => o.setName("nickname").setDescription("New nickname").setRequired(true)),
+  new SlashCommandBuilder().setName("nickreset").setDescription("Reset a member nickname.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)),
+  new SlashCommandBuilder().setName("snipe").setDescription("Show the latest deleted message in this channel."),
+  new SlashCommandBuilder().setName("whois").setDescription("Show member information.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(false)),
+  new SlashCommandBuilder().setName("roleinfo").setDescription("Show role information.")
+    .addRoleOption((o) => o.setName("role").setDescription("Role").setRequired(true)),
+  new SlashCommandBuilder().setName("botinfo").setDescription("Show bot information."),
+  new SlashCommandBuilder().setName("stats").setDescription("Show server statistics."),
+  new SlashCommandBuilder().setName("warn").setDescription("Warn a member.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true))
+    .addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(true)),
+  new SlashCommandBuilder().setName("warns").setDescription("Show warnings for a member.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(false)),
+  new SlashCommandBuilder().setName("kick").setDescription("Kick a member.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true))
+    .addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(false)),
+  new SlashCommandBuilder().setName("mute").setDescription("Mute a member with the Muted role.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true))
+    .addStringOption((o) => o.setName("duration").setDescription("Duration such as 10m or 2h").setRequired(false))
+    .addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(false)),
+  new SlashCommandBuilder().setName("muterole").setDescription("Create or select the Muted role.")
+    .addStringOption((o) => o.setName("action").setDescription("Action").setRequired(true)
+      .addChoices({ name: "create", value: "create" }, { name: "use", value: "use" }))
+    .addStringOption((o) => o.setName("name").setDescription("Role name").setRequired(true)),
+  new SlashCommandBuilder().setName("ban").setDescription("Ban a member.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true))
+    .addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(false)),
+  new SlashCommandBuilder().setName("unban").setDescription("Unban a user by ID.")
+    .addStringOption((o) => o.setName("user_id").setDescription("User ID").setRequired(true)),
+  new SlashCommandBuilder().setName("unmute").setDescription("Remove the Muted role from a member.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)),
+  new SlashCommandBuilder().setName("tempmute").setDescription("Mute a member for a number of minutes.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true))
+    .addIntegerOption((o) => o.setName("minutes").setDescription("Minutes").setRequired(true).setMinValue(1).setMaxValue(7200))
+    .addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(false)),
+  new SlashCommandBuilder().setName("delete").setDescription("Delete a role.")
+    .addRoleOption((o) => o.setName("role").setDescription("Role").setRequired(true)),
+  new SlashCommandBuilder().setName("mock").setDescription("Repeat text with alternating capitalization.")
+    .addStringOption((o) => o.setName("message").setDescription("Message").setRequired(true)),
+  new SlashCommandBuilder().setName("eball").setDescription("Ask the eight ball a question.")
+    .addStringOption((o) => o.setName("question").setDescription("Question").setRequired(false)),
+  new SlashCommandBuilder().setName("say").setDescription("Send a message as the bot.")
+    .addStringOption((o) => o.setName("message").setDescription("Message").setRequired(true)),
+  new SlashCommandBuilder().setName("mimic").setDescription("Mimic a user's messages until stopped."),
+  new SlashCommandBuilder().setName("stop").setDescription("Stop mimicking your messages."),
+  new SlashCommandBuilder().setName("afk").setDescription("Set an AFK status.")
+    .addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(false)),
+  new SlashCommandBuilder().setName("purge").setDescription("Delete recent messages.")
+    .addIntegerOption((o) => o.setName("amount").setDescription("Number of messages").setRequired(true).setMinValue(1).setMaxValue(100)),
+  new SlashCommandBuilder().setName("av").setDescription("Show a member avatar.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(false)),
+  new SlashCommandBuilder().setName("analyse").setDescription("Analyse text statistics.")
+    .addStringOption((o) => o.setName("quote").setDescription("Text to analyse").setRequired(true)),
+  new SlashCommandBuilder().setName("wl").setDescription("Toggle a user in the allowlist.")
+    .addUserOption((o) => o.setName("user").setDescription("User").setRequired(true)),
+  new SlashCommandBuilder().setName("bl").setDescription("Add a user or guild to the blacklist.")
+    .addStringOption((o) => o.setName("target_type").setDescription("Target type").setRequired(true)
+      .addChoices({ name: "user", value: "user" }, { name: "guild", value: "guild" }))
+    .addStringOption((o) => o.setName("target").setDescription("User or guild ID").setRequired(true))
+    .addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(false)),
+  new SlashCommandBuilder().setName("unbl").setDescription("Clear the legacy blacklist.")
+    .addStringOption((o) => o.setName("option").setDescription("Use all").setRequired(true)
+      .addChoices({ name: "all", value: "all" })),
+  new SlashCommandBuilder().setName("status").setDescription("Show allowlist and blacklist status."),
+  new SlashCommandBuilder().setName("secret").setDescription("Show the legacy command reference."),
+  new SlashCommandBuilder().setName("weather").setDescription("Show weather for a location.")
+    .addStringOption((o) => o.setName("location").setDescription("City or location").setRequired(true)),
+  new SlashCommandBuilder().setName("invite").setDescription("Get an invite link for this bot."),
+  new SlashCommandBuilder().setName("userinfo").setDescription("Show detailed user information.")
+    .addUserOption((o) => o.setName("user").setDescription("User").setRequired(false)),
+  new SlashCommandBuilder().setName("servers").setDescription("List servers the bot is in."),
+  new SlashCommandBuilder().setName("inv").setDescription("Create an invite for a server.")
+    .addStringOption((o) => o.setName("server").setDescription("Server ID or exact name").setRequired(true)),
+  new SlashCommandBuilder().setName("calc").setDescription("Calculate a basic arithmetic expression.")
+    .addStringOption((o) => o.setName("expression").setDescription("Arithmetic expression").setRequired(true)),
+  new SlashCommandBuilder().setName("hug").setDescription("Send a hug image.")
+    .addUserOption((o) => o.setName("user").setDescription("User").setRequired(true)),
+  new SlashCommandBuilder().setName("kiss").setDescription("Send a kiss image.")
+    .addUserOption((o) => o.setName("user").setDescription("User").setRequired(true)),
+  new SlashCommandBuilder().setName("emotions").setDescription("Show emotion commands."),
+  new SlashCommandBuilder().setName("youtube").setDescription("Search YouTube.")
+    .addStringOption((o) => o.setName("query").setDescription("Search terms").setRequired(true)),
+  new SlashCommandBuilder().setName("leave").setDescription("Leave a server by ID.")
+    .addStringOption((o) => o.setName("server_id").setDescription("Server ID").setRequired(true)),
+  new SlashCommandBuilder().setName("banlist").setDescription("Show the server ban list."),
+  new SlashCommandBuilder().setName("role").setDescription("Create or delete a server role.")
+    .addStringOption((o) => o.setName("action").setDescription("Action").setRequired(true)
+      .addChoices({ name: "create", value: "create" }, { name: "delete", value: "delete" }))
+    .addStringOption((o) => o.setName("name").setDescription("Role name").setRequired(true))
+    .addStringOption((o) => o.setName("colour").setDescription("Hex colour such as #5865f2").setRequired(false))
+    .addBooleanOption((o) => o.setName("mentionable").setDescription("Make mentionable").setRequired(false)),
+  new SlashCommandBuilder().setName("randommember").setDescription("Pick a random non-bot member."),
+  new SlashCommandBuilder().setName("memberinsights").setDescription("Show member account and role insights.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(false)),
+  new SlashCommandBuilder().setName("serverhealth").setDescription("Show server health and bot permissions."),
+  new SlashCommandBuilder().setName("channelpulse").setDescription("Summarize recent channel activity.")
+    .addChannelOption((o) => o.setName("channel").setDescription("Text channel").setRequired(false)),
+  new SlashCommandBuilder().setName("serverreport").setDescription("Show a server summary report."),
+  new SlashCommandBuilder().setName("roleinsights").setDescription("Show role usage insights."),
+  new SlashCommandBuilder().setName("memberactivity").setDescription("Show a member's recent message activity.")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(false))
+    .addIntegerOption((o) => o.setName("limit").setDescription("Messages to scan").setMinValue(25).setMaxValue(100).setRequired(false)),
+  new SlashCommandBuilder().setName("voiceinsights").setDescription("Show current voice occupancy."),
+  new SlashCommandBuilder().setName("analytics").setDescription("Show stored analytics totals."),
+  new SlashCommandBuilder().setName("cloud").setDescription("Show the complete analytics dashboard."),
+  new SlashCommandBuilder().setName("topmessages").setDescription("Rank members by stored messages.")
+    .addIntegerOption((o) => o.setName("limit").setDescription("Number of members").setMinValue(1).setMaxValue(20).setRequired(false)),
+  new SlashCommandBuilder().setName("topwords").setDescription("Rank members by stored words.")
+    .addIntegerOption((o) => o.setName("limit").setDescription("Number of members").setMinValue(1).setMaxValue(20).setRequired(false)),
+  new SlashCommandBuilder().setName("wordcloud").setDescription("Show the most-used stored words.")
+    .addIntegerOption((o) => o.setName("limit").setDescription("Number of words").setMinValue(5).setMaxValue(30).setRequired(false)),
+  new SlashCommandBuilder().setName("joins").setDescription("Show recent member joins."),
+  new SlashCommandBuilder().setName("leaves").setDescription("Show recent member departures."),
+  new SlashCommandBuilder().setName("voiceactivity").setDescription("Rank members by stored voice time.")
+    .addIntegerOption((o) => o.setName("limit").setDescription("Number of members").setMinValue(1).setMaxValue(20).setRequired(false)),
+  new SlashCommandBuilder().setName("messagechanges").setDescription("Show stored message edits and deletions.")
+    .addIntegerOption((o) => o.setName("limit").setDescription("Number of changes").setMinValue(1).setMaxValue(30).setRequired(false)),
+  new SlashCommandBuilder().setName("timezone").setDescription("Show the current time in a timezone.")
+    .addStringOption((o) => o.setName("location").setDescription("City or IANA timezone").setRequired(true)),
+  new SlashCommandBuilder().setName("define").setDescription("Look up a dictionary definition.")
+    .addStringOption((o) => o.setName("word").setDescription("Word or short phrase").setRequired(true)),
+  new SlashCommandBuilder().setName("poll").setDescription("Create a reaction poll.")
+    .addStringOption((o) => o.setName("question").setDescription("Question").setRequired(true))
+    .addStringOption((o) => o.setName("options").setDescription("Comma-separated options").setRequired(true)),
+  new SlashCommandBuilder().setName("remind").setDescription("Set a personal reminder.")
+    .addStringOption((o) => o.setName("duration").setDescription("10m, 2h, or 1d").setRequired(true))
+    .addStringOption((o) => o.setName("message").setDescription("Reminder message").setRequired(true)),
 ].map((command) => command.toJSON());
 
 function helpEmbed() {
@@ -223,7 +396,11 @@ function helpEmbed() {
       },
       {
         name: "⚡ Security controls",
-        value: "`/security` — Live protection status\n`/setup` — Create Guardian infrastructure\n`/backup` — Save a server snapshot\n`/lockdown on|off` — Freeze/unfreeze server messaging\n`/quarantine @user` — Isolate a member\n`/allow @user` — Trust a user for this process\n`/incident` — View tracked incidents",
+        value: "`/security` — Live protection status\n`/setup` — Create Guardian infrastructure\n`/backup` — Save a server snapshot\n`/lockdown on|off` — Freeze/unfreeze server messaging\n`/quarantine @user` — Isolate a member\n`/allow @user` — Trust a user for this process\n`/list` `/disallow` — Manage process allowlist\n`/incident` — View tracked incidents",
+      },
+      {
+        name: "🧰 Legacy utility and moderation commands",
+        value: "`/ping` `/uptime` `/urban` `/suggest` `/nick` `/nickreset` `/snipe` `/whois` `/roleinfo` `/botinfo` `/stats` `/warn` `/warns` `/kick` `/mute` `/muterole` `/ban` `/unban` `/unmute` `/tempmute` `/delete` `/mock` `/eball` `/say` `/mimic` `/stop` `/afk` `/purge` `/av` `/analyse` `/wl` `/bl` `/unbl` `/status` `/secret` `/weather` `/invite` `/userinfo` `/servers` `/inv` `/calc` `/hug` `/kiss` `/emotions` `/youtube` `/leave` `/banlist` `/role`",
       },
       {
         name: "🔍 Automatic protection",
@@ -261,6 +438,523 @@ function isTrusted(member) {
 
 function canManage(member) {
   return Boolean(member && (isTrusted(member) || member.permissions.has(PermissionsBitField.Flags.Administrator)));
+}
+
+const PUBLIC_COMMANDS = new Set([
+  "ping", "uptime", "urban", "suggest", "snipe", "whois", "roleinfo", "botinfo", "stats",
+  "warns", "eball", "av", "analyse", "status", "weather", "invite", "userinfo", "calc",
+  "hug", "kiss", "emotions", "youtube", "help", "security", "incident", "randommember",
+  "memberinsights", "serverhealth", "channelpulse", "serverreport", "roleinsights",
+  "memberactivity", "voiceinsights", "analytics", "cloud", "topmessages", "topwords",
+  "wordcloud", "joins", "leaves", "voiceactivity", "messagechanges", "timezone", "define",
+  "poll", "remind",
+]);
+
+function parseDuration(value) {
+  const match = /^(\d+)([smhd])$/i.exec(String(value || "").trim());
+  if (!match) return null;
+  const units = { s: 1, m: 60, h: 3600, d: 86400 };
+  return Number(match[1]) * units[match[2].toLowerCase()];
+}
+
+function getMutedRole(guild) {
+  return guild.roles.cache.find((role) => role.name.toLowerCase() === "muted");
+}
+
+function memberEmbed(member, title) {
+  const embed = new EmbedBuilder().setTitle(title).setColor(member.displayColor || 0x5865f2);
+  if (member.displayAvatarURL()) embed.setThumbnail(member.displayAvatarURL());
+  return embed;
+}
+
+function displayMember(member) {
+  return `${member.user.tag} (${member.id})`;
+}
+
+function safeDescription(value, fallback = "None") {
+  const text = String(value || fallback);
+  return text.length > 4000 ? `${text.slice(0, 3997)}...` : text;
+}
+
+function recordMessageActivity(message) {
+  if (!message.guild || message.author.bot) return;
+  const content = message.content || "";
+  database.prepare(`
+    INSERT INTO message_activity
+      (guild_id, channel_id, user_id, content, created_at, word_count)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    message.guild.id,
+    message.channelId,
+    message.author.id,
+    content,
+    new Date().toISOString(),
+    (content.match(/\b[\w'-]+\b/g) || []).length,
+  );
+}
+
+function recordMemberEvent(member, eventType) {
+  database.prepare("INSERT INTO member_events (guild_id, user_id, event_type, occurred_at) VALUES (?, ?, ?, ?)")
+    .run(member.guild.id, member.id, eventType, new Date().toISOString());
+}
+
+function recordVoiceEvent(member, channelId, joinedAt, leftAt = null) {
+  database.prepare("INSERT INTO voice_activity (guild_id, channel_id, user_id, joined_at, left_at) VALUES (?, ?, ?, ?, ?)")
+    .run(member.guild.id, channelId, member.id, joinedAt, leftAt);
+}
+
+function updateLatestMessageChange(message, field) {
+  if (!message.guild || message.author?.bot) return;
+  const timestamp = new Date().toISOString();
+  const column = field === "edited_at" ? "edited_at" : "deleted_at";
+  database.prepare(`
+    UPDATE message_activity SET ${column} = ?
+    WHERE id = (
+      SELECT id FROM message_activity
+      WHERE guild_id = ? AND channel_id = ? AND user_id = ? AND deleted_at IS NULL
+      ORDER BY id DESC LIMIT 1
+    )
+  `).run(timestamp, message.guild.id, message.channelId, message.author.id);
+}
+
+function analyticsGuild(interaction) {
+  if (!interaction.guild) throw new Error("This command can only be used inside a server.");
+  return interaction.guild;
+}
+
+async function handleAnalyticsCommand(interaction, name) {
+  const guild = analyticsGuild(interaction);
+  const guildId = guild.id;
+  if (name === "analytics" || name === "cloud") {
+    const totals = database.prepare(`
+      SELECT COUNT(*) AS messages, COUNT(DISTINCT user_id) AS authors,
+      COALESCE(SUM(word_count), 0) AS words FROM message_activity WHERE guild_id = ?
+    `).get(guildId);
+    const joins = database.prepare("SELECT COUNT(*) AS count FROM member_events WHERE guild_id = ? AND event_type = 'join'").get(guildId).count;
+    const leaves = database.prepare("SELECT COUNT(*) AS count FROM member_events WHERE guild_id = ? AND event_type = 'leave'").get(guildId).count;
+    const voice = database.prepare("SELECT COUNT(*) AS count FROM voice_activity WHERE guild_id = ?").get(guildId).count;
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`${name === "cloud" ? "zy cloud" : "Stored analytics"} • ${guild.name}`).setColor(0x5865f2).addFields(
+      { name: "Messages", value: String(totals.messages), inline: true }, { name: "Authors", value: String(totals.authors), inline: true },
+      { name: "Words", value: String(totals.words), inline: true }, { name: "Joins", value: String(joins), inline: true },
+      { name: "Leaves", value: String(leaves), inline: true }, { name: "Voice sessions", value: String(voice), inline: true },
+    )] });
+  }
+  if (name === "topmessages" || name === "topwords") {
+    const limit = interaction.options.getInteger("limit") || 10;
+    const expression = name === "topmessages" ? "COUNT(*)" : "COALESCE(SUM(word_count), 0)";
+    const label = name === "topmessages" ? "messages" : "words";
+    const rows = database.prepare(`SELECT user_id, ${expression} AS total FROM message_activity WHERE guild_id = ? GROUP BY user_id ORDER BY total DESC LIMIT ?`).all(guildId, limit);
+    return interaction.reply(rows.length ? rows.map((row, index) => `${index + 1}. <@${row.user_id}> — **${row.total}** ${label}`).join("\n") : `No stored ${label} yet.`);
+  }
+  if (name === "wordcloud") {
+    const limit = interaction.options.getInteger("limit") || 15;
+    const rows = database.prepare("SELECT content FROM message_activity WHERE guild_id = ?").all(guildId);
+    const counts = new Map();
+    for (const row of rows) {
+      for (const word of row.content.toLowerCase().match(/[a-z][a-z'-]{2,}/g) || []) counts.set(word, (counts.get(word) || 0) + 1);
+    }
+    const common = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
+    return interaction.reply(common.length ? common.map(([word, count], index) => `${index + 1}. \`${word}\` — **${count}**`).join("\n") : "No stored words yet.");
+  }
+  if (name === "joins" || name === "leaves") {
+    const type = name === "joins" ? "join" : "leave";
+    const rows = database.prepare("SELECT user_id, occurred_at FROM member_events WHERE guild_id = ? AND event_type = ? ORDER BY id DESC LIMIT 20").all(guildId, type);
+    return interaction.reply(rows.length ? rows.map((row) => `<@${row.user_id}> — <t:${Math.floor(new Date(row.occurred_at).getTime() / 1000)}:R>`).join("\n") : `No stored ${type} events yet.`);
+  }
+  if (name === "voiceactivity") {
+    const limit = interaction.options.getInteger("limit") || 10;
+    const rows = database.prepare(`
+      SELECT user_id, SUM(CASE WHEN left_at IS NULL THEN (julianday('now') - julianday(joined_at)) * 86400
+      ELSE (julianday(left_at) - julianday(joined_at)) * 86400 END) AS seconds
+      FROM voice_activity WHERE guild_id = ? GROUP BY user_id ORDER BY seconds DESC LIMIT ?
+    `).all(guildId, limit);
+    return interaction.reply(rows.length ? rows.map((row, index) => `${index + 1}. <@${row.user_id}> — **${Math.floor(row.seconds / 3600)}h ${Math.floor(row.seconds / 60) % 60}m**`).join("\n") : "No stored voice activity yet.");
+  }
+  const limit = interaction.options.getInteger("limit") || 15;
+  const rows = database.prepare(`
+    SELECT user_id, channel_id, edited_at, deleted_at FROM message_activity
+    WHERE guild_id = ? AND (edited_at IS NOT NULL OR deleted_at IS NOT NULL)
+    ORDER BY id DESC LIMIT ?
+  `).all(guildId, limit);
+  return interaction.reply(rows.length ? rows.map((row) => `<@${row.user_id}> in <#${row.channel_id}> — ${row.deleted_at ? "deleted" : "edited"}`).join("\n") : "No stored edits or deletions yet.");
+}
+
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+async function handleLegacyInteraction(interaction) {
+  const { commandName: name, guild, member, user } = interaction;
+  const options = interaction.options;
+  if (name === "list" || name === "disallow") {
+    if (!config.ownerUsers.has(user.id)) return interaction.reply({ content: "Owner only. Add your ID to OWNER_USER_IDS.", ephemeral: true });
+    if (name === "list") return interaction.reply(`Allowlisted users: ${[...config.allowedUsers].map((id) => `<@${id}>`).join(", ") || "None"}`);
+    const target = options.getUser("user");
+    config.allowedUsers.delete(target.id);
+    return interaction.reply(`Removed ${target} from the process allowlist.`);
+  }
+  if (!PUBLIC_COMMANDS.has(name) && !canManage(member)) {
+    return interaction.reply({ content: "You need Administrator permission or an allowlisted role/user.", ephemeral: true });
+  }
+
+  if (name === "ping") return interaction.reply(`Pong! \`${Math.round(client.ws.ping)}ms\``);
+  if (name === "uptime") {
+    const total = Math.floor(process.uptime());
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    return interaction.reply(`**Uptime:** ${days}d ${hours}h ${minutes}m ${seconds}s`);
+  }
+  if (name === "urban") {
+    const query = options.getString("query");
+    const url = query
+      ? `https://api.urbandictionary.com/v0/define?term=${encodeURIComponent(query)}`
+      : "https://api.urbandictionary.com/v0/random";
+    try {
+      const data = await fetchJson(url);
+      const definition = data.list?.[0];
+      if (!definition) return interaction.reply("Definition not found.");
+      return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`Urban Dictionary: ${definition.word}`).setURL(definition.permalink).setDescription(safeDescription(definition.definition)).setColor(0x0049d4).addFields({ name: "Example", value: safeDescription(definition.example) }, { name: "Votes", value: `👍 ${definition.thumbs_up || 0} | 👎 ${definition.thumbs_down || 0}` })] });
+    } catch {
+      return interaction.reply("Urban Dictionary is unavailable right now.");
+    }
+  }
+  if (name === "suggest") {
+    const channel = options.getChannel("channel") || (config.suggestionChannelId ? await guild.channels.fetch(config.suggestionChannelId).catch(() => null) : null);
+    if (!channel?.isTextBased()) return interaction.reply({ content: "No suggestion channel is configured.", ephemeral: true });
+    await channel.send(`New suggestion from ${user}: ${options.getString("suggestion")}`);
+    return interaction.reply("Your suggestion has been submitted.");
+  }
+  if (name === "snipe") {
+    const snipe = state.snipes.get(interaction.channelId);
+    if (!snipe) return interaction.reply("No deleted messages to snipe.");
+    return interaction.reply({ embeds: [new EmbedBuilder().setAuthor({ name: snipe.author, iconURL: snipe.avatar }).setDescription(safeDescription(`\`\`\`${snipe.content || "[attachment only]"}\`\`\``)).setColor(0x9b59b6).setTimestamp(snipe.deletedAt)] });
+  }
+  if (name === "whois" || name === "userinfo") {
+    const targetUser = options.getUser(name === "whois" ? "member" : "user") || user;
+    const target = await guild.members.fetch(targetUser.id).catch(() => null);
+    if (!target) return interaction.reply({ content: "Member not found.", ephemeral: true });
+    const embed = memberEmbed(target, `User Information - ${target.user.tag}`)
+      .addFields(
+        { name: "ID", value: target.id, inline: true },
+        { name: "Nickname", value: target.nickname || "None", inline: true },
+        { name: "Account created", value: `<t:${Math.floor(target.user.createdTimestamp / 1000)}:F>`, inline: false },
+        { name: "Joined server", value: target.joinedTimestamp ? `<t:${Math.floor(target.joinedTimestamp / 1000)}:F>` : "Unknown", inline: false },
+        { name: "Roles", value: target.roles.cache.filter((role) => role.id !== guild.id).map((role) => role.toString()).join(", ") || "None", inline: false },
+        { name: "Bot", value: target.user.bot ? "Yes" : "No", inline: true },
+      );
+    return interaction.reply({ embeds: [embed] });
+  }
+  if (name === "roleinfo") {
+    const role = options.getRole("role");
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle("Role Info").setColor(role.color || 0x00ffff).addFields(
+      { name: "ID", value: role.id, inline: true }, { name: "Name", value: role.name, inline: true },
+      { name: "Members", value: String(role.members.size), inline: true }, { name: "Position", value: String(role.position), inline: true },
+      { name: "Mentionable", value: role.mentionable ? "Yes" : "No", inline: true }, { name: "Managed", value: role.managed ? "Yes" : "No", inline: true },
+    )] });
+  }
+  if (name === "botinfo") {
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle("Bot Information").setColor(0xed4245).addFields(
+      { name: "Name", value: client.user.tag, inline: false }, { name: "Runtime", value: "JavaScript / Node.js", inline: false },
+      { name: "Servers", value: String(client.guilds.cache.size), inline: true }, { name: "Commands", value: String(commands.length), inline: true },
+    )] });
+  }
+  if (name === "stats") {
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`Guild information for ${guild.name}`).setColor(0x5865f2).addFields(
+      { name: "Owner", value: `<@${guild.ownerId}>`, inline: true }, { name: "Members", value: String(guild.memberCount), inline: true },
+      { name: "Roles", value: String(guild.roles.cache.size), inline: true }, { name: "Emojis", value: String(guild.emojis.cache.size), inline: true },
+      { name: "Channels", value: String(guild.channels.cache.size), inline: true }, { name: "Boosts", value: String(guild.premiumSubscriptionCount || 0), inline: true },
+      { name: "Verification", value: String(guild.verificationLevel), inline: true }, { name: "Bots", value: String(guild.members.cache.filter((m) => m.user.bot).size), inline: true },
+    )] });
+  }
+  if (name === "randommember") {
+    const members = guild.members.cache.filter((candidate) => !candidate.user.bot);
+    const target = [...members.values()][Math.floor(Math.random() * members.size)];
+    return interaction.reply(target ? `${target} was randomly selected.` : "No non-bot members are available.");
+  }
+  if (name === "memberinsights") {
+    const target = await guild.members.fetch(options.getUser("member")?.id || user.id).catch(() => null);
+    if (!target) return interaction.reply("Member not found.");
+    return interaction.reply({ embeds: [memberEmbed(target, `Member insights: ${target.displayName}`).addFields(
+      { name: "Account created", value: `<t:${Math.floor(target.user.createdTimestamp / 1000)}:F>`, inline: false },
+      { name: "Joined server", value: target.joinedTimestamp ? `<t:${Math.floor(target.joinedTimestamp / 1000)}:F>` : "Unknown", inline: false },
+      { name: "Roles", value: target.roles.cache.filter((role) => role.id !== guild.id).map((role) => role.toString()).join(", ") || "None", inline: false },
+      { name: "Top role", value: target.roles.highest.toString(), inline: true },
+    )] });
+  }
+  if (name === "serverhealth") {
+    const me = guild.members.me;
+    const permissions = ["ViewChannel", "SendMessages", "EmbedLinks", "ReadMessageHistory"];
+    const missing = permissions.filter((permission) => !me?.permissions.has(PermissionsBitField.Flags[permission]));
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`Server health: ${guild.name}`).setColor(missing.length ? 0xffa000 : 0x35d07f).addFields(
+      { name: "Members", value: String(guild.memberCount), inline: true }, { name: "Channels", value: String(guild.channels.cache.size), inline: true },
+      { name: "Roles", value: String(guild.roles.cache.size), inline: true }, { name: "Boost level", value: String(guild.premiumTier), inline: true },
+      { name: "Bot permissions", value: missing.length ? `Missing: ${missing.join(", ")}` : "All core permissions available", inline: false },
+    )] });
+  }
+  if (name === "channelpulse") {
+    const channel = options.getChannel("channel") || interaction.channel;
+    if (!channel?.isTextBased() || !channel.messages) return interaction.reply("Choose a text channel.");
+    const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    if (!messages) return interaction.reply("Could not read that channel.");
+    const authors = new Map();
+    let attachments = 0;
+    for (const message of messages.values()) {
+      if (!message.author.bot) authors.set(message.author.id, (authors.get(message.author.id) || 0) + 1);
+      attachments += message.attachments.size;
+    }
+    const top = [...authors.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, count], index) => `${index + 1}. <@${id}> — ${count}`).join("\n") || "None";
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`Channel pulse: #${channel.name}`).setDescription("Read-only snapshot of the latest 100 messages.").addFields(
+      { name: "Messages sampled", value: String(messages.size), inline: true }, { name: "Attachments", value: String(attachments), inline: true }, { name: "Top contributors", value: top, inline: false },
+    )] });
+  }
+  if (name === "serverreport") {
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`Server report: ${guild.name}`).addFields(
+      { name: "Created", value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:F>`, inline: false },
+      { name: "Members", value: String(guild.memberCount), inline: true }, { name: "Text channels", value: String(guild.channels.cache.filter((c) => c.isTextBased()).size), inline: true },
+      { name: "Voice channels", value: String(guild.channels.cache.filter((c) => c.isVoiceBased()).size), inline: true }, { name: "Emojis", value: String(guild.emojis.cache.size), inline: true },
+      { name: "Features", value: guild.features.slice(0, 10).join(", ") || "None", inline: false },
+    )] });
+  }
+  if (name === "roleinsights") {
+    const roles = [...guild.roles.cache.values()].filter((role) => role.id !== guild.id).sort((a, b) => b.members.size - a.members.size).slice(0, 10);
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`Role insights: ${guild.name}`).setDescription(roles.map((role, index) => `${index + 1}. ${role} — **${role.members.size}** members`).join("\n") || "No custom roles found.").addFields(
+      { name: "Total roles", value: String(guild.roles.cache.size - 1), inline: true }, { name: "Managed roles", value: String(guild.roles.cache.filter((role) => role.managed).size), inline: true },
+    )] });
+  }
+  if (name === "memberactivity") {
+    const target = options.getUser("member") || user;
+    const limit = options.getInteger("limit") || 100;
+    const messages = await interaction.channel.messages.fetch({ limit }).catch(() => null);
+    const found = messages ? [...messages.values()].filter((message) => message.author.id === target.id) : [];
+    return interaction.reply(`Messages by ${target} in this channel: **${found.length}**\\nAttachments: **${found.reduce((sum, message) => sum + message.attachments.size, 0)}**`);
+  }
+  if (name === "voiceinsights") {
+    const channels = guild.voiceStates.cache.reduce((map, state) => {
+      if (state.channel) map.set(state.channel.id, (map.get(state.channel.id) || 0) + 1);
+      return map;
+    }, new Map());
+    return interaction.reply([...channels.entries()].map(([id, count]) => `<#${id}> — **${count}** connected`).join("\n") || "Nobody is currently in a voice channel.");
+  }
+  if (["analytics", "cloud", "topmessages", "topwords", "wordcloud", "joins", "leaves", "voiceactivity", "messagechanges"].includes(name)) {
+    return handleAnalyticsCommand(interaction, name);
+  }
+  if (name === "timezone") {
+    const aliases = { london: "Europe/London", "new york": "America/New_York", nyc: "America/New_York", tokyo: "Asia/Tokyo", utc: "UTC", india: "Asia/Kolkata" };
+    const location = options.getString("location").trim();
+    const zone = aliases[location.toLowerCase()] || location;
+    try {
+      const formatted = new Intl.DateTimeFormat("en-GB", { timeZone: zone, dateStyle: "full", timeStyle: "long" }).format(new Date());
+      return interaction.reply(`**${location}:** ${formatted}`);
+    } catch { return interaction.reply("Unknown timezone. Try `London`, `Tokyo`, `UTC`, or an IANA timezone."); }
+  }
+  if (name === "define") {
+    const word = options.getString("word").trim();
+    try {
+      const data = await fetchJson(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+      const lines = (data[0]?.meanings || []).slice(0, 3).flatMap((meaning) => meaning.definitions.slice(0, 1).map((definition) => `**${meaning.partOfSpeech}** — ${definition.definition}`));
+      return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`Definition: ${data[0]?.word || word}`).setDescription(lines.join("\n") || "No definition returned.")] });
+    } catch { return interaction.reply(`No definition found for \`${word}\`.`); }
+  }
+  if (name === "poll") {
+    const choices = options.getString("options").split(",").map((choice) => choice.trim()).filter(Boolean);
+    if (choices.length < 2 || choices.length > 10) return interaction.reply({ content: "Provide 2-10 comma-separated options.", ephemeral: true });
+    const emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
+    const message = await interaction.reply({ content: `**${options.getString("question")}**\n${choices.map((choice, index) => `${emojis[index]} ${choice}`).join("\n")}`, fetchReply: true });
+    for (let index = 0; index < choices.length; index += 1) await message.react(emojis[index]).catch(() => {});
+    return;
+  }
+  if (name === "remind") {
+    const seconds = parseDuration(options.getString("duration"));
+    if (!seconds || seconds > 30 * 86400) return interaction.reply({ content: "Use a duration such as `10m`, `2h`, or `1d` (maximum 30 days).", ephemeral: true });
+    await interaction.reply(`Reminder set for **${options.getString("duration")}**.`);
+    setTimeout(async () => {
+      await user.send(`⏰ Reminder: ${options.getString("message")}`).catch(() => interaction.followUp(`⏰ ${user}, reminder: ${options.getString("message")}`));
+    }, seconds * 1000);
+    return;
+  }
+  if (name === "warn" || name === "warns") {
+    const target = name === "warn" ? await guild.members.fetch(options.getUser("member").id).catch(() => null) : (await guild.members.fetch(options.getUser("member")?.id || user.id).catch(() => null));
+    if (!target) return interaction.reply({ content: "Member not found.", ephemeral: true });
+    const key = `${guild.id}:${target.id}`;
+    if (name === "warns") {
+      const warnings = state.warnings.get(key) || [];
+      return interaction.reply(warnings.length ? `Warnings for ${target}:\\n${warnings.map((warning, index) => `${index + 1}. ${warning}`).join("\\n")}` : `${target} has no warnings.`);
+    }
+    const reason = options.getString("reason");
+    const warnings = state.warnings.get(key) || [];
+    warnings.push(reason);
+    state.warnings.set(key, warnings);
+    if (warnings.length >= 3) {
+      const mutedRole = getMutedRole(guild);
+      if (mutedRole && target.manageable) await target.roles.add(mutedRole, "Reached three warnings").catch(() => {});
+    }
+    return interaction.reply(`${target} has been warned. Total warnings: **${warnings.length}**.`);
+  }
+  if (name === "kick" || name === "ban") {
+    const target = await guild.members.fetch(options.getUser("member").id).catch(() => null);
+    if (!target) return interaction.reply({ content: "Member not found.", ephemeral: true });
+    const reason = options.getString("reason") || "No reason provided";
+    const success = name === "kick"
+      ? await target.kick(reason).then(() => true).catch(() => false)
+      : await target.ban({ reason, deleteMessageSeconds: 0 }).then(() => true).catch(() => false);
+    return interaction.reply(success ? `${target} was ${name}ed. Reason: ${reason}` : `Could not ${name} ${target}. Check my permissions and role position.`);
+  }
+  if (name === "unban") {
+    const userId = options.getString("user_id");
+    const target = await client.users.fetch(userId).catch(() => null);
+    if (!target) return interaction.reply({ content: "User not found.", ephemeral: true });
+    const success = await guild.members.unban(target, "Manual unban").then(() => true).catch(() => false);
+    return interaction.reply(success ? `${target.tag} was unbanned.` : "Could not unban that user. Check my permissions and the ID.");
+  }
+  if (name === "mute" || name === "tempmute" || name === "unmute") {
+    const target = await guild.members.fetch(options.getUser("member").id).catch(() => null);
+    const role = getMutedRole(guild);
+    if (!target || !role) return interaction.reply({ content: target ? "Create a role named `Muted` first." : "Member not found.", ephemeral: true });
+    if (name === "unmute") {
+      await target.roles.remove(role, "Manual unmute").catch(() => {});
+      return interaction.reply(`${target} has been unmuted.`);
+    }
+    const seconds = name === "tempmute" ? options.getInteger("minutes") * 60 : parseDuration(options.getString("duration"));
+    if (name === "mute" && options.getString("duration") && !seconds) return interaction.reply({ content: "Use a duration like `10m`, `2h`, or `1d`.", ephemeral: true });
+    await target.roles.add(role, options.getString("reason") || "Manual mute").catch(() => {});
+    if (!seconds) return interaction.reply(`${target} has been muted.`);
+    setTimeout(() => target.roles.remove(role, "Mute duration expired").catch(() => {}), seconds * 1000);
+    return interaction.reply(`${target} has been muted for ${seconds < 3600 ? `${Math.ceil(seconds / 60)} minutes` : `${(seconds / 3600).toFixed(1)} hours`}.`);
+  }
+  if (name === "muterole") {
+    const action = options.getString("action");
+    const roleName = options.getString("name");
+    if (action === "create") {
+      if (guild.roles.cache.some((role) => role.name === roleName)) return interaction.reply("A role with that name already exists.");
+      const role = await guild.roles.create({ name: roleName, permissions: [], reason: "Mute role setup" });
+      return interaction.reply(`Created muted role ${role}. Apply channel denies to it if needed.`);
+    }
+    const role = guild.roles.cache.find((candidate) => candidate.name === roleName);
+    return interaction.reply(role ? `Using ${role}. Rename it to \`Muted\` for mute commands.` : "Role not found.");
+  }
+  if (name === "delete") {
+    const role = options.getRole("role");
+    const success = role.editable && await role.delete("Manual role deletion").then(() => true).catch(() => false);
+    return interaction.reply(success ? `Deleted **${role.name}**.` : "I cannot delete that role.");
+  }
+  if (name === "mock") return interaction.reply(options.getString("message").split("").map((char, index) => index % 2 ? char.toLowerCase() : char.toUpperCase()).join(""));
+  if (name === "eball") return interaction.reply(["Yes.", "No.", "Maybe.", "Ask again later.", "Definitely.", "Probably not."][Math.floor(Math.random() * 6)]);
+  if (name === "say") return interaction.reply({ content: options.getString("message"), allowedMentions: { parse: [] } });
+  if (name === "mimic") {
+    state.mimicUsers.add(user.id);
+    return interaction.reply("Mimic mode enabled. Use `/stop` to disable it.");
+  }
+  if (name === "stop") {
+    state.mimicUsers.delete(user.id);
+    return interaction.reply("Mimic mode disabled.");
+  }
+  if (name === "afk") {
+    state.afkUsers.set(user.id, options.getString("reason") || "No reason provided");
+    return interaction.reply(`You are now AFK: ${state.afkUsers.get(user.id)}`);
+  }
+  if (name === "purge") {
+    const deleted = await interaction.channel.bulkDelete(options.getInteger("amount"), true).catch(() => null);
+    return interaction.reply({ content: deleted ? `Deleted ${deleted.size} messages.` : "I could not delete those messages.", ephemeral: true });
+  }
+  if (name === "av") {
+    const target = options.getUser("member") || user;
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`${target.tag}'s avatar`).setImage(target.displayAvatarURL({ size: 1024 })).setColor(0x5865f2)] });
+  }
+  if (name === "analyse") {
+    const quote = options.getString("quote");
+    const words = quote.match(/\b[\w'-]+\b/g) || [];
+    return interaction.reply(`**Analysis**\\nWords: ${words.length}\\nCharacters: ${quote.length}\\nUppercase letters: ${(quote.match(/[A-Z]/g) || []).length}\\nLowercase letters: ${(quote.match(/[a-z]/g) || []).length}`);
+  }
+  if (name === "wl") {
+    const target = options.getUser("user");
+    if (config.allowedUsers.has(target.id)) config.allowedUsers.delete(target.id);
+    else config.allowedUsers.add(target.id);
+    return interaction.reply(`${target} is now ${config.allowedUsers.has(target.id) ? "allowlisted" : "removed from the allowlist"} for this process.`);
+  }
+  if (name === "bl" || name === "unbl" || name === "status") {
+    if (!state.blacklist) state.blacklist = { users: new Map(), guilds: new Map() };
+    if (name === "status") return interaction.reply(`Allowlisted users: **${config.allowedUsers.size}**\\nBlacklisted users: **${state.blacklist.users.size}**\\nBlacklisted guilds: **${state.blacklist.guilds.size}**`);
+    if (name === "unbl") { state.blacklist.users.clear(); state.blacklist.guilds.clear(); return interaction.reply("Blacklist cleared."); }
+    const type = options.getString("target_type");
+    state.blacklist[type === "user" ? "users" : "guilds"].set(options.getString("target"), options.getString("reason") || "Not specified");
+    return interaction.reply(`${type} \`${options.getString("target")}\` was added to the blacklist.`);
+  }
+  if (name === "secret") return interaction.reply({ embeds: [new EmbedBuilder().setTitle("zy command reference").setDescription("Use `/help` for active commands. Security automation runs automatically; destructive mass-action commands from the legacy bot are intentionally not included.").setColor(0x5865f2)] });
+  if (name === "weather") {
+    if (!config.weatherApiKey) return interaction.reply({ content: "Weather is not configured. Add OPENWEATHER_API_KEY to `.env`.", ephemeral: true });
+    const location = options.getString("location");
+    try {
+      const places = await fetchJson(`https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(location)}&limit=1&appid=${config.weatherApiKey}`);
+      if (!places[0]) return interaction.reply("No weather location found.");
+      const weather = await fetchJson(`https://api.openweathermap.org/data/2.5/weather?lat=${places[0].lat}&lon=${places[0].lon}&units=metric&appid=${config.weatherApiKey}`);
+      return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`Weather in ${places[0].name}`).setColor(0x00aa55).addFields(
+        { name: "Status", value: weather.weather?.[0]?.description || "Unknown", inline: true },
+        { name: "Temperature", value: `${weather.main.temp}°C`, inline: true },
+        { name: "Humidity", value: `${weather.main.humidity}%`, inline: true },
+        { name: "Wind", value: `${weather.wind?.speed || 0} m/s`, inline: true },
+      )] });
+    } catch {
+      return interaction.reply("Weather lookup failed.");
+    }
+  }
+  if (name === "invite") {
+    const url = `https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=bot%20applications.commands&permissions=8`;
+    return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`Invite ${client.user.username}`).setDescription(`[Click here to invite the bot](${url})`).setColor(0x5865f2)] });
+  }
+  if (name === "servers") {
+    if (!config.ownerUsers.has(user.id)) return interaction.reply({ content: "Owner only.", ephemeral: true });
+    return interaction.reply({ content: client.guilds.cache.map((g) => `**${g.name}** — ${g.memberCount} members — \`${g.id}\``).join("\n").slice(0, 4000) || "No servers." });
+  }
+  if (name === "inv") {
+    if (!config.ownerUsers.has(user.id)) return interaction.reply({ content: "Owner only.", ephemeral: true });
+    const query = options.getString("server");
+    const target = client.guilds.cache.get(query) || client.guilds.cache.find((g) => g.name === query);
+    if (!target) return interaction.reply({ content: "Server not found.", ephemeral: true });
+    const channel = target.channels.cache.find((c) => c.isTextBased() && c.permissionsFor(target.members.me)?.has(PermissionsBitField.Flags.CreateInstantInvite));
+    const invite = await channel?.createInvite({ maxAge: 0, maxUses: 0, reason: "Owner invite command" }).catch(() => null);
+    return interaction.reply(invite ? invite.url : "Could not create an invite.");
+  }
+  if (name === "calc") {
+    const expression = options.getString("expression");
+    if (!/^[0-9+*/%().\s-]+$/.test(expression)) return interaction.reply({ content: "Only basic arithmetic is allowed.", ephemeral: true });
+    try { return interaction.reply(`\`\`\`${Function(`"use strict"; return (${expression})`)()}\`\`\``); } catch { return interaction.reply("Invalid expression."); }
+  }
+  if (name === "hug" || name === "kiss") {
+    try {
+      const data = await fetchJson(`https://nekos.life/api/${name}`);
+      return interaction.reply({ embeds: [new EmbedBuilder().setTitle(`${user.username} ${name}ed ${options.getUser("user").username}`).setImage(data.url).setColor(name === "hug" ? 0x00ff00 : 0xff00ff)] });
+    } catch { return interaction.reply("The image service is unavailable."); }
+  }
+  if (name === "emotions") return interaction.reply("Available commands: `/hug` and `/kiss`.");
+  if (name === "youtube") return interaction.reply(`YouTube search: https://www.youtube.com/results?search_query=${encodeURIComponent(options.getString("query"))}`);
+  if (name === "leave") {
+    if (!config.ownerUsers.has(user.id)) return interaction.reply({ content: "Owner only.", ephemeral: true });
+    const target = client.guilds.cache.get(options.getString("server_id"));
+    if (!target) return interaction.reply("Server not found.");
+    await target.leave();
+    return interaction.reply(`Left **${target.name}**.`);
+  }
+  if (name === "banlist") {
+    const bans = await guild.bans.fetch().catch(() => null);
+    return interaction.reply(bans?.size ? `**Ban list:**\\n${[...bans.values()].slice(0, 50).map((ban) => `• ${ban.user.tag} (${ban.user.id})`).join("\n")}` : "This server has no bans.");
+  }
+  if (name === "role") {
+    const action = options.getString("action");
+    const roleName = options.getString("name");
+    if (action === "delete") {
+      const role = guild.roles.cache.find((candidate) => candidate.name === roleName);
+      if (!role) return interaction.reply("Role not found.");
+      await role.delete("Manual role deletion").catch(() => {});
+      return interaction.reply(`Deleted role **${roleName}**.`);
+    }
+    const role = await guild.roles.create({ name: roleName, color: options.getString("colour") || undefined, mentionable: options.getBoolean("mentionable") || false, reason: "Manual role creation" }).catch(() => null);
+    return interaction.reply(role ? `Created role ${role}.` : "Could not create the role.");
+  }
+  return false;
 }
 
 async function sendLogEmbed(guild, embed) {
@@ -955,6 +1649,7 @@ for (const eventName of [
 }
 
 client.on(Events.GuildMemberAdd, async (member) => {
+  recordMemberEvent(member, "join");
   const now = Date.now();
   const joins = (state.joins.get(member.guild.id) || []).filter((time) => now - time < config.joinWindowMs);
   joins.push(now);
@@ -981,6 +1676,24 @@ client.on(Events.GuildMemberAdd, async (member) => {
     } else {
       await quarantine(member, "Server is in lockdown.");
     }
+  }
+});
+
+client.on(Events.GuildMemberRemove, (member) => {
+  recordMemberEvent(member, "leave");
+});
+
+client.on(Events.VoiceStateUpdate, (member, before, after) => {
+  const now = new Date().toISOString();
+  if (!before.channelId && after.channelId) recordVoiceEvent(member, after.channelId, now);
+  if (before.channelId && !after.channelId) {
+    database.prepare("UPDATE voice_activity SET left_at = ? WHERE id = (SELECT id FROM voice_activity WHERE guild_id = ? AND user_id = ? AND left_at IS NULL ORDER BY id DESC LIMIT 1)")
+      .run(now, member.guild.id, member.id);
+  }
+  if (before.channelId && after.channelId && before.channelId !== after.channelId) {
+    database.prepare("UPDATE voice_activity SET left_at = ? WHERE id = (SELECT id FROM voice_activity WHERE guild_id = ? AND user_id = ? AND left_at IS NULL ORDER BY id DESC LIMIT 1)")
+      .run(now, member.guild.id, member.id);
+    recordVoiceEvent(member, after.channelId, now);
   }
 });
 
@@ -1030,10 +1743,49 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return interaction.reply("User allowlisted for this process. Persist it in .env.");
   }
   if (interaction.commandName === "incident") return interaction.reply(`Tracked incidents: **${state.incidents.size}**`);
+  return handleLegacyInteraction(interaction).catch(async (error) => {
+    console.error(`Command /${interaction.commandName} failed:`, error);
+    const message = { content: "This command could not be completed.", ephemeral: true };
+    if (interaction.replied || interaction.deferred) return interaction.followUp(message);
+    return interaction.reply(message);
+  });
 });
 
 client.on(Events.MessageCreate, async (message) => {
   await handleMassMention(message);
+  if (message.author.bot) return;
+  try {
+    recordMessageActivity(message);
+  } catch (error) {
+    console.error("Could not record message analytics:", error.message);
+  }
+  if (state.afkUsers.has(message.author.id)) {
+    state.afkUsers.delete(message.author.id);
+    await message.channel.send(`Welcome back, ${message.author}! Your AFK status was removed.`);
+  }
+  for (const mention of message.mentions.users.values()) {
+    const reason = state.afkUsers.get(mention.id);
+    if (reason) await message.channel.send(`${mention} is currently AFK: ${reason}`);
+  }
+  if (state.mimicUsers.has(message.author.id)) {
+    await message.channel.send(`${message.author} said: ${message.content}`, { allowedMentions: { parse: [] } });
+  }
+});
+
+client.on(Events.MessageDelete, (message) => {
+  if (!message.guild || message.author?.bot) return;
+  try { updateLatestMessageChange(message, "deleted_at"); } catch (error) { console.error("Could not record message deletion:", error.message); }
+  state.snipes.set(message.channelId, {
+    content: message.content,
+    author: message.author?.tag || "Unknown user",
+    avatar: message.author?.displayAvatarURL() || undefined,
+    deletedAt: new Date(),
+  });
+});
+
+client.on(Events.MessageUpdate, (before, after) => {
+  if (!after.guild || after.author?.bot) return;
+  try { updateLatestMessageChange(after, "edited_at"); } catch (error) { console.error("Could not record message edit:", error.message); }
 });
 
 process.on("unhandledRejection", (error) => console.error("Unhandled rejection:", error));
