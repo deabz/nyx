@@ -6,6 +6,9 @@ const { DatabaseSync } = require("node:sqlite");
 
 const {
   AuditLogEvent,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   Client,
   Collection,
   EmbedBuilder,
@@ -15,6 +18,8 @@ const {
   REST,
   Routes,
   SlashCommandBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require("discord.js");
 
 const csv = (value) => new Set((value || "").split(",").map((x) => x.trim()).filter(Boolean));
@@ -378,56 +383,99 @@ const commands = [
     .addStringOption((o) => o.setName("message").setDescription("Reminder message").setRequired(true)),
 ].map((command) => command.toJSON());
 
-function helpEmbed() {
-  const commandFields = [];
-  const commandLines = commands.map((command) => `\`/${command.name}\` — ${command.description}`);
-  for (let index = 0; index < commandLines.length; index += 12) {
-    commandFields.push({
-      name: `Available slash commands ${Math.floor(index / 12) + 1}`,
-      value: commandLines.slice(index, index + 12).join("\n"),
-    });
+const HELP_CATEGORIES = [
+  {
+    name: "Security",
+    commands: ["security", "setup", "backup", "lockdown", "quarantine", "allow", "list", "disallow", "incident"],
+  },
+  {
+    name: "Information",
+    commands: ["ping", "uptime", "snipe", "whois", "roleinfo", "botinfo", "stats", "av", "userinfo", "serverhealth", "serverreport"],
+  },
+  {
+    name: "Moderation",
+    commands: ["warn", "warns", "kick", "mute", "muterole", "ban", "unban", "unmute", "tempmute", "delete", "purge", "role"],
+  },
+  {
+    name: "Utility",
+    commands: ["urban", "suggest", "mock", "eball", "say", "mimic", "stop", "afk", "analyse", "invite", "calc", "emotions"],
+  },
+  {
+    name: "Entertainment",
+    commands: ["hug", "kiss", "youtube", "weather", "define", "timezone", "poll", "remind"],
+  },
+  {
+    name: "Analytics",
+    commands: ["randommember", "memberinsights", "channelpulse", "roleinsights", "memberactivity", "voiceinsights", "analytics", "cloud", "topmessages", "topwords", "wordcloud", "joins", "leaves", "voiceactivity", "messagechanges"],
+  },
+  {
+    name: "Legacy / Owner",
+    commands: ["wl", "bl", "unbl", "status", "secret", "servers", "inv", "leave", "banlist"],
+  },
+];
+
+function helpPages(search = "") {
+  const commandMap = new Map(commands.map((command) => [command.name, command]));
+  const normalizedSearch = search.trim().toLowerCase();
+  const pages = [];
+  for (const category of HELP_CATEGORIES) {
+    const entries = category.commands
+      .map((name) => commandMap.get(name))
+      .filter((command) => command && (!normalizedSearch ||
+        command.name.includes(normalizedSearch) || command.description.toLowerCase().includes(normalizedSearch)));
+    if (entries.length) pages.push({ title: category.name, entries });
   }
+  const categorized = new Set(HELP_CATEGORIES.flatMap((category) => category.commands));
+  const uncategorized = commands.filter((command) =>
+    !categorized.has(command.name) &&
+    (!normalizedSearch || command.name.includes(normalizedSearch) || command.description.toLowerCase().includes(normalizedSearch)));
+  if (uncategorized.length) pages.push({ title: "Other", entries: uncategorized });
+  return pages.length ? pages : [{ title: "Search results", entries: [] }];
+}
+
+function helpEmbed(page, pageIndex, totalPages, search = "") {
+  const description = page.entries.length
+    ? page.entries.map((command) => `\`/${command.name}\` — ${command.description}`).join("\n")
+    : `No commands matched \`${search}\`.`;
   return new EmbedBuilder()
     .setTitle("🛡️ zy Security Center")
-    .setDescription("Your server's defensive command center. zy watches for raids, anti-nuke patterns, suspicious activity, and emergency threats.")
+    .setDescription(search
+      ? `Search results for \`${search}\``
+      : "Your server's defensive command center. Commands are grouped by category.")
     .setColor(0x5865f2)
     .addFields(
       {
-        name: "🚀 Getting started",
-        value: "`/setup`\nCreates the private `guardian-security` category, `guardian-logs` channel, `Guardian Quarantine` role, and protected permission rules. Safe to run again.",
+        name: page.title,
+        value: description,
       },
-      {
-        name: "⚡ Command list",
-        value: "The command pages below are generated from the exact slash commands registered with Discord.",
-      },
-      {
-        name: "🔍 Automatic protection",
-        value: "• Detects join raids using configurable join-rate thresholds\n• Detects dangerous audit-log bursts by executor\n• Watches channel/role creation and deletion, bans, kicks, and webhook changes\n• Bans confirmed anti-nuke executors when possible\n• Bans bots that join during a detected raid when possible\n• Quarantines human raid joins instead of mass-banning members\n• Applies the quarantine role and starts lockdown automatically\n• Logs actor, target, result, action, and reason",
-      },
-      {
-        name: "📋 What setup creates",
-        value: "A hidden security category, a private action log channel, a quarantine role, and channel denies that prevent quarantined users from viewing or speaking. Created IDs are saved to `.env`.",
-      },
-      {
-        name: "💾 Automatic backups",
-        value: "zy automatically saves the server name, icon, settings, roles, channels, permission overwrites, emojis, stickers, scheduled events, bans, and webhooks. It detects changes from Discord events and periodic integrity scans, then records the differences in the security log.",
-      },
-      {
-        name: "🔐 Required permissions",
-        value: "View Audit Log, Manage Roles, Manage Channels, Moderate Members, Send Messages, Embed Links, and the privileged intents enabled in the Developer Portal.",
-      },
-      {
-        name: "⚙️ Configuration",
-        value: "Edit `.env` for thresholds, trusted users/roles, log channel, quarantine role, lockdown behavior, targeted attacker/raid-bot bans, dry-run mode, and the streaming presence.",
-      },
-      {
-        name: "🧪 Safe testing",
-        value: "Set `DRY_RUN=true` before testing automated responses. Guardian will report what it would do without changing roles, timeouts, or channel permissions.",
-      },
-      ...commandFields,
     )
-    .setFooter({ text: "Guardian • Defensive automation, not a replacement for secure ownership and 2FA" })
+    .setFooter({ text: `Page ${pageIndex + 1}/${totalPages} • Use the buttons to navigate or search` })
     .setTimestamp();
+}
+
+function helpComponents(ownerId, pageIndex, totalPages) {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`help:back:${ownerId}`).setLabel("Back").setStyle(ButtonStyle.Secondary).setDisabled(pageIndex === 0),
+      new ButtonBuilder().setCustomId(`help:next:${ownerId}`).setLabel("Next").setStyle(ButtonStyle.Primary).setDisabled(pageIndex >= totalPages - 1),
+      new ButtonBuilder().setCustomId(`help:search:${ownerId}`).setLabel("Search command").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`help:close:${ownerId}`).setLabel("Close").setStyle(ButtonStyle.Danger),
+    ),
+  ];
+}
+
+function helpModal(ownerId) {
+  return new ModalBuilder()
+    .setCustomId(`help-modal:${ownerId}`)
+    .setTitle("Search slash commands")
+    .addComponents(new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("query")
+        .setLabel("Command name or description")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setMaxLength(80),
+    ));
 }
 
 function isTrusted(member) {
@@ -1691,9 +1739,47 @@ client.on(Events.GuildAuditLogEntryCreate, async (entry, guild) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isButton() && interaction.customId.startsWith("help:")) {
+    const [, action, ownerId] = interaction.customId.split(":");
+    if (interaction.user.id !== ownerId) {
+      return interaction.reply({ content: "Only the person who opened this help menu can use these buttons.", ephemeral: true });
+    }
+    if (action === "close") {
+      return interaction.update({ content: "Help closed.", embeds: [], components: [] });
+    }
+    if (action === "search") return interaction.showModal(helpModal(ownerId));
+    const currentPage = Number(interaction.message.embeds[0]?.footer?.text.match(/Page (\d+)\/(\d+)/)?.[1] || 1) - 1;
+    const totalPages = helpPages().length;
+    const nextPage = Math.max(0, Math.min(totalPages - 1, currentPage + (action === "next" ? 1 : -1)));
+    const pages = helpPages();
+    return interaction.update({
+      embeds: [helpEmbed(pages[nextPage], nextPage, pages.length)],
+      components: helpComponents(ownerId, nextPage, pages.length),
+    });
+  }
+  if (interaction.isModalSubmit() && interaction.customId.startsWith("help-modal:")) {
+    const ownerId = interaction.customId.split(":")[1];
+    if (interaction.user.id !== ownerId) {
+      return interaction.reply({ content: "Only the person who opened this help menu can search it.", ephemeral: true });
+    }
+    const search = interaction.fields.getTextInputValue("query");
+    const pages = helpPages(search);
+    return interaction.reply({
+      embeds: [helpEmbed(pages[0], 0, pages.length, search)],
+      components: helpComponents(ownerId, 0, pages.length),
+      ephemeral: true,
+    });
+  }
   if (!interaction.isChatInputCommand() || !interaction.guild) return;
   const member = interaction.member;
-  if (interaction.commandName === "help") return interaction.reply({ embeds: [helpEmbed()], ephemeral: true });
+  if (interaction.commandName === "help") {
+    const pages = helpPages();
+    return interaction.reply({
+      embeds: [helpEmbed(pages[0], 0, pages.length)],
+      components: helpComponents(interaction.user.id, 0, pages.length),
+      ephemeral: true,
+    });
+  }
   if (interaction.commandName === "security") {
     return interaction.reply(`zy is active. Lockdown: **${state.lockdowns.has(interaction.guild.id) ? "ON" : "OFF"}** | Dry run: **${config.dryRun ? "ON" : "OFF"}`);
   }
