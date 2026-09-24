@@ -250,11 +250,6 @@ const commands = [
     .addStringOption((o) => o.setName("query").setDescription("Term to look up").setRequired(false)),
   new SlashCommandBuilder().setName("suggest").setDescription("Send a suggestion to the configured suggestion channel.")
     .addStringOption((o) => o.setName("suggestion").setDescription("Suggestion text").setRequired(true)),
-  new SlashCommandBuilder().setName("nick").setDescription("Change a member nickname.")
-    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true))
-    .addStringOption((o) => o.setName("nickname").setDescription("New nickname").setRequired(true)),
-  new SlashCommandBuilder().setName("nickreset").setDescription("Reset a member nickname.")
-    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)),
   new SlashCommandBuilder().setName("snipe").setDescription("Show the latest deleted message in this channel."),
   new SlashCommandBuilder().setName("whois").setDescription("Show member information.")
     .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(false)),
@@ -384,6 +379,14 @@ const commands = [
 ].map((command) => command.toJSON());
 
 function helpEmbed() {
+  const commandFields = [];
+  const commandLines = commands.map((command) => `\`/${command.name}\` — ${command.description}`);
+  for (let index = 0; index < commandLines.length; index += 12) {
+    commandFields.push({
+      name: `Available slash commands ${Math.floor(index / 12) + 1}`,
+      value: commandLines.slice(index, index + 12).join("\n"),
+    });
+  }
   return new EmbedBuilder()
     .setTitle("🛡️ zy Security Center")
     .setDescription("Your server's defensive command center. zy watches for raids, anti-nuke patterns, suspicious activity, and emergency threats.")
@@ -394,12 +397,8 @@ function helpEmbed() {
         value: "`/setup`\nCreates the private `guardian-security` category, `guardian-logs` channel, `Guardian Quarantine` role, and protected permission rules. Safe to run again.",
       },
       {
-        name: "⚡ Security controls",
-        value: "`/security` — Live protection status\n`/setup` — Create Guardian infrastructure\n`/backup` — Save a server snapshot\n`/lockdown on|off` — Freeze/unfreeze server messaging\n`/quarantine @user` — Isolate a member\n`/allow @user` — Trust a user for this process\n`/list` `/disallow` — Manage process allowlist\n`/incident` — View tracked incidents",
-      },
-      {
-        name: "🧰 Legacy utility and moderation commands",
-        value: "`/ping` `/uptime` `/urban` `/suggest` `/nick` `/nickreset` `/snipe` `/whois` `/roleinfo` `/botinfo` `/stats` `/warn` `/warns` `/kick` `/mute` `/muterole` `/ban` `/unban` `/unmute` `/tempmute` `/delete` `/mock` `/eball` `/say` `/mimic` `/stop` `/afk` `/purge` `/av` `/analyse` `/wl` `/bl` `/unbl` `/status` `/secret` `/weather` `/invite` `/userinfo` `/servers` `/inv` `/calc` `/hug` `/kiss` `/emotions` `/youtube` `/leave` `/banlist` `/role`",
+        name: "⚡ Command list",
+        value: "The command pages below are generated from the exact slash commands registered with Discord.",
       },
       {
         name: "🔍 Automatic protection",
@@ -425,6 +424,7 @@ function helpEmbed() {
         name: "🧪 Safe testing",
         value: "Set `DRY_RUN=true` before testing automated responses. Guardian will report what it would do without changing roles, timeouts, or channel permissions.",
       },
+      ...commandFields,
     )
     .setFooter({ text: "Guardian • Defensive automation, not a replacement for secure ownership and 2FA" })
     .setTimestamp();

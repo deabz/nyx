@@ -36,7 +36,7 @@ Commands are slash commands only:
 Prefix messages are ignored except for the automatic mass-mention containment check.
 
 The legacy Nyx command set is also available as slash commands, including `/ping`,
-`/uptime`, `/urban`, `/suggest`, `/nick`, `/nickreset`, `/snipe`, `/whois`,
+`/uptime`, `/urban`, `/suggest`, `/snipe`, `/whois`,
 `/roleinfo`, `/botinfo`, `/stats`, `/warn`, `/warns`, `/kick`, `/mute`,
 `/muterole`, `/ban`, `/unban`, `/unmute`, `/tempmute`, `/delete`, `/mock`,
 `/eball`, `/say`, `/mimic`, `/stop`, `/afk`, `/purge`, `/av`, `/analyse`,
