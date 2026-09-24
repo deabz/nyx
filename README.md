@@ -1,6 +1,6 @@
 # zy
 
-A defensive Discord.js anti-raid and anti-nuke bot. It monitors join bursts and audit-log activity, automatically quarantines suspicious members, can lock down text channels, posts incident logs, and exposes every core action through both slash commands and prefix commands.
+A defensive Discord.js anti-raid and anti-nuke bot. It monitors join bursts and audit-log activity, automatically quarantines suspicious members, can lock down text channels, posts incident logs, and exposes every core action through slash commands.
 
 ## Setup
 
@@ -16,22 +16,24 @@ zy includes a small status website and health endpoint. Open `http://localhost:3
 
 For 24/7 uptime, deploy the project to an always-on Node host such as Render, Railway, Fly.io, or a VPS. `render.yaml` is included for Render. Set `DISCORD_TOKEN` and the rest of your environment variables as host secrets; never commit `.env`. On Render, use the `/health` health-check path and an always-on paid instance—free services may sleep and cannot guarantee continuous Discord monitoring.
 
-Set `DEV_GUILD_ID` while testing for instant slash-command updates. Leave it empty for global commands. Run `/setup` or `!setup` once in each server as an Administrator. Setup creates the `guardian-security` category, private `guardian-logs` channel, and `Guardian Quarantine` role, applies quarantine denies to text channels, and saves the created IDs into `.env`. Keep `DRY_RUN=true` while testing if you want alerts without changing permissions or timing out users.
+Set `DEV_GUILD_ID` while testing for instant slash-command updates. Leave it empty for global commands. Run `/setup` once in each server as an Administrator. Setup creates the `guardian-security` category, private `guardian-logs` channel, and `Guardian Quarantine` role, applies quarantine denies to text channels, and saves the created IDs into `.env`. Keep `DRY_RUN=true` while testing if you want alerts without changing permissions or timing out users.
 
 The bot uses an **Invisible** presence while it continues operating, so members see it as offline. Change `PRESENCE_STATUS` to `online`, `idle`, `dnd`, or `invisible` if needed; `STREAMING_NAME` and `STREAMING_URL` customize the activity.
 
 ## Commands
 
-Slash and prefix forms are equivalent:
+Commands are slash commands only:
 
-- `/security` or `!security`
-- `/help` or `!help`
-- `/setup` or `!setup`
-- `/backup` or `!backup`
-- `/lockdown on|off` or `!lockdown on|off`
-- `/quarantine @user` or `!quarantine @user`
-- `/allow @user` or `!allow @user`
-- `/incident` or `!incident`
+- `/security`
+- `/help`
+- `/setup`
+- `/backup`
+- `/lockdown on|off`
+- `/quarantine @user`
+- `/allow @user`
+- `/incident`
+
+Prefix messages are ignored except for the automatic mass-mention containment check.
 
 The log channel receives structured records for setup, lockdowns, quarantines, timeouts, allowlist changes, raid detections, and anti-nuke responses, including actor, target, result, and reason.
 

@@ -24,7 +24,6 @@ const config = {
   brandName: "zy",
   webPort: num(process.env.PORT, 3000),
   token: process.env.DISCORD_TOKEN,
-  prefix: process.env.PREFIX || "!",
   devGuildId: process.env.DEV_GUILD_ID || "",
   logChannelId: process.env.LOG_CHANNEL_ID || "",
   quarantineRoleId: process.env.QUARANTINE_ROLE_ID || "",
@@ -220,11 +219,11 @@ function helpEmbed() {
     .addFields(
       {
         name: "🚀 Getting started",
-        value: "`/setup` or `!setup`\nCreates the private `guardian-security` category, `guardian-logs` channel, `Guardian Quarantine` role, and protected permission rules. Safe to run again.",
+        value: "`/setup`\nCreates the private `guardian-security` category, `guardian-logs` channel, `Guardian Quarantine` role, and protected permission rules. Safe to run again.",
       },
       {
         name: "⚡ Security controls",
-        value: "`/security` or `!security` — Live protection status\n`/setup` or `!setup` — Create Guardian infrastructure\n`/backup` or `!backup` — Save a server snapshot\n`/lockdown on|off` or `!lockdown on|off` — Freeze/unfreeze server messaging\n`/quarantine @user` or `!quarantine @user` — Isolate a member\n`/allow @user` or `!allow @user` — Trust a user for this process\n`/incident` or `!incident` — View tracked incidents",
+        value: "`/security` — Live protection status\n`/setup` — Create Guardian infrastructure\n`/backup` — Save a server snapshot\n`/lockdown on|off` — Freeze/unfreeze server messaging\n`/quarantine @user` — Isolate a member\n`/allow @user` — Trust a user for this process\n`/incident` — View tracked incidents",
       },
       {
         name: "🔍 Automatic protection",
@@ -244,7 +243,7 @@ function helpEmbed() {
       },
       {
         name: "⚙️ Configuration",
-        value: "Edit `.env` for thresholds, trusted users/roles, log channel, quarantine role, lockdown behavior, targeted attacker/raid-bot bans, dry-run mode, command prefix, and the streaming presence.",
+        value: "Edit `.env` for thresholds, trusted users/roles, log channel, quarantine role, lockdown behavior, targeted attacker/raid-bot bans, dry-run mode, and the streaming presence.",
       },
       {
         name: "🧪 Safe testing",
@@ -894,46 +893,6 @@ async function registerCommands() {
   console.log(`Registered ${commands.length} slash commands ${useGuild ? `in ${config.devGuildId}` : "globally"}.`);
 }
 
-async function handleCommand(message, name, args) {
-  if (!message.guild) return;
-  if (name === "help") return message.reply({ embeds: [helpEmbed()] });
-  if (name === "security") {
-    return message.reply(`zy is active. Lockdown: **${state.lockdowns.has(message.guild.id) ? "ON" : "OFF"}** | Dry run: **${config.dryRun ? "ON" : "OFF"}**`);
-  }
-  if (!canManage(message.member)) return message.reply("You need Administrator permission or an allowlisted role/user.");
-  if (name === "setup") {
-    try {
-      const result = await setupGuild(message.guild, message.author);
-      return message.reply(`Setup complete: ${result.logChannel} and ${result.role} are ready.`);
-    } catch (error) {
-      await logAction(message.guild, "Setup", "Failed", message.author.tag, message.guild.name, error.message);
-      return message.reply(`Setup failed: ${error.message}`);
-    }
-  }
-  if (name === "backup") {
-    try {
-      const backup = await createServerBackup(message.guild);
-      await logAction(message.guild, "Create server backup", "Completed", message.author.tag, message.guild.name, `${backup.roles.length} roles and ${backup.channels.length} channels saved`);
-      return message.reply(`Backup saved: **${backup.roles.length} roles** and **${backup.channels.length} channels**.`);
-    } catch (error) {
-      await logAction(message.guild, "Create server backup", "Failed", message.author.tag, message.guild.name, error.message);
-      return message.reply(`Backup failed: ${error.message}`);
-    }
-  }
-  if (name === "lockdown") return setLockdown(message.guild, args[0] !== "off", `Manual command by ${message.author.tag}`);
-  if (name === "allow") {
-    config.allowedUsers.add(args[0]?.replace(/[<@!>]/g, "") || "");
-    await logAction(message.guild, "Allow user", "Added for current process", message.author.tag, args[0] || "Unknown user", "Manual allow command");
-    return message.reply("User added to this process's allowlist. Add them to ALLOWED_USER_IDS in .env to persist it.");
-  }
-  if (name === "quarantine") {
-    const member = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
-    if (member) await logAction(message.guild, "Manual quarantine", "Requested", message.author.tag, member.user.tag, "Manual command");
-    return member ? quarantine(member, `Manual command by ${message.author.tag}`) : message.reply("Member not found.");
-  }
-  if (name === "incident") return message.reply(`Tracked incidents: **${state.incidents.size}**`);
-}
-
 client.once(Events.ClientReady, async () => {
   console.log(`Logged in as ${client.user.tag}`);
   for (const guild of client.guilds.cache.values()) {
@@ -956,7 +915,7 @@ client.once(Events.ClientReady, async () => {
     if (config.devGuildId) {
       console.error(`Check that DEV_GUILD_ID (${config.devGuildId}) is a server where this bot is installed, or clear DEV_GUILD_ID in .env.`);
     }
-    console.log("The bot will continue running with prefix commands.");
+      console.error("Slash commands may be unavailable until registration succeeds.");
   }
 });
 
@@ -1074,10 +1033,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 client.on(Events.MessageCreate, async (message) => {
-  if (await handleMassMention(message)) return;
-  if (message.author.bot || !message.content.startsWith(config.prefix)) return;
-  const [name, ...args] = message.content.slice(config.prefix.length).trim().split(/\s+/);
-  if (name) await handleCommand(message, name.toLowerCase(), args);
+  await handleMassMention(message);
 });
 
 process.on("unhandledRejection", (error) => console.error("Unhandled rejection:", error));
