@@ -26,7 +26,6 @@ const config = {
   token: process.env.DISCORD_TOKEN,
   weatherApiKey: process.env.OPENWEATHER_API_KEY || "",
   suggestionChannelId: process.env.SUGGESTION_CHANNEL_ID || "",
-  devGuildId: process.env.DEV_GUILD_ID || "",
   logChannelId: process.env.LOG_CHANNEL_ID || "",
   quarantineRoleId: process.env.QUARANTINE_ROLE_ID || "",
   allowedUsers: csv(process.env.ALLOWED_USER_IDS),
@@ -1575,16 +1574,9 @@ async function inspectAudit(guild, actionType, targetName) {
 
 async function registerCommands() {
   const rest = new REST({ version: "10" }).setToken(config.token);
-  const targetGuild = config.devGuildId ? client.guilds.cache.get(config.devGuildId) : null;
-  if (config.devGuildId && !targetGuild) {
-    console.error(`DEV_GUILD_ID ${config.devGuildId} is not available to this bot. Falling back to global slash commands.`);
-  }
-  const useGuild = Boolean(targetGuild);
-  const route = useGuild
-    ? Routes.applicationGuildCommands(client.user.id, config.devGuildId)
-    : Routes.applicationCommands(client.user.id);
+  const route = Routes.applicationCommands(client.user.id);
   await rest.put(route, { body: commands });
-  console.log(`Registered ${commands.length} slash commands ${useGuild ? `in ${config.devGuildId}` : "globally"}.`);
+  console.log(`Registered ${commands.length} global slash commands.`);
 }
 
 client.once(Events.ClientReady, async () => {
@@ -1606,10 +1598,7 @@ client.once(Events.ClientReady, async () => {
     await registerCommands();
   } catch (error) {
     console.error(`Slash-command registration failed: ${error.code || error.message}`);
-    if (config.devGuildId) {
-      console.error(`Check that DEV_GUILD_ID (${config.devGuildId}) is a server where this bot is installed, or clear DEV_GUILD_ID in .env.`);
-    }
-      console.error("Slash commands may be unavailable until registration succeeds.");
+    console.error("Slash commands may be unavailable until registration succeeds.");
   }
 });
 

@@ -16,7 +16,7 @@ zy includes a small status website and health endpoint. Open `http://localhost:3
 
 For 24/7 uptime, deploy the project to an always-on Node host such as Render, Railway, Fly.io, or a VPS. `render.yaml` is included for Render. Set `DISCORD_TOKEN` and the rest of your environment variables as host secrets; never commit `.env`. On Render, use the `/health` health-check path and an always-on paid instance—free services may sleep and cannot guarantee continuous Discord monitoring.
 
-Set `DEV_GUILD_ID` while testing for instant slash-command updates. Leave it empty for global commands. Run `/setup` once in each server as an Administrator. Setup creates the `guardian-security` category, private `guardian-logs` channel, and `Guardian Quarantine` role, applies quarantine denies to text channels, and saves the created IDs into `.env`. Keep `DRY_RUN=true` while testing if you want alerts without changing permissions or timing out users.
+Slash commands are registered globally on startup, so Discord may take up to about an hour to propagate command changes. Run `/setup` once in each server as an Administrator. Setup creates the `guardian-security` category, private `guardian-logs` channel, and `Guardian Quarantine` role, applies quarantine denies to text channels, and saves the created IDs into `.env`. Keep `DRY_RUN=true` while testing if you want alerts without changing permissions or timing out users.
 
 The bot uses an **Invisible** presence while it continues operating, so members see it as offline. Change `PRESENCE_STATUS` to `online`, `idle`, `dnd`, or `invisible` if needed; `STREAMING_NAME` and `STREAMING_URL` customize the activity.
 
