@@ -25,6 +25,7 @@ The bot shows an **online Twitch streaming** presence named `Bearded Sexy Brown 
 Commands are slash commands only:
 
 - `/security`
+- `/offline` and `/online` (owner only; `/online` restores the Twitch stream presence)
 - `/help`
 - `/setup`
 - `/backup`

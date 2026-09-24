@@ -236,6 +236,8 @@ main{max-width:760px;margin:8vh auto;padding:32px}h1{font-size:48px;margin:0 0 8
 const commands = [
   new SlashCommandBuilder().setName("help").setDescription("Open the complete zy command and security guide."),
   new SlashCommandBuilder().setName("security").setDescription("Show zy security status."),
+  new SlashCommandBuilder().setName("offline").setDescription("Set the bot's visible status to offline."),
+  new SlashCommandBuilder().setName("online").setDescription("Set the bot online and show its Twitch stream."),
   new SlashCommandBuilder().setName("setup").setDescription("Create zy security infrastructure."),
   new SlashCommandBuilder().setName("backup").setDescription("Snapshot the server name, icon, roles, channels, and permissions."),
   new SlashCommandBuilder().setName("lockdown").setDescription("Lock or unlock the server.")
@@ -386,7 +388,7 @@ const commands = [
 const HELP_CATEGORIES = [
   {
     name: "Security",
-    commands: ["security", "setup", "backup", "lockdown", "quarantine", "allow", "list", "disallow", "incident"],
+    commands: ["security", "offline", "online", "setup", "backup", "lockdown", "quarantine", "allow", "list", "disallow", "incident"],
   },
   {
     name: "Information",
@@ -485,6 +487,17 @@ function isTrusted(member) {
 
 function canManage(member) {
   return Boolean(member && (isTrusted(member) || member.permissions.has(PermissionsBitField.Flags.Administrator)));
+}
+
+function setBotPresence(status, streamingName = config.streamingName, streamingUrl = config.streamingUrl) {
+  if (status === "offline") {
+    client.user.setPresence({ activities: [], status: "invisible" });
+    return;
+  }
+  client.user.setPresence({
+    activities: [{ name: streamingName, type: 1, url: streamingUrl }],
+    status,
+  });
 }
 
 const PUBLIC_COMMANDS = new Set([
@@ -1637,10 +1650,7 @@ client.once(Events.ClientReady, async () => {
       console.error(`[${guild.name}] Initial automatic backup failed: ${error.message}`);
     }
   }
-  client.user.setPresence({
-    activities: [{ name: config.streamingName, type: 1, url: config.streamingUrl }],
-    status: config.presenceStatus,
-  });
+  setBotPresence(config.presenceStatus, config.streamingName, config.streamingUrl);
   console.log(`Presence set to ${config.presenceStatus}: Streaming ${config.streamingName} at ${config.streamingUrl}`);
   try {
     await registerCommands();
@@ -1782,6 +1792,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
   if (interaction.commandName === "security") {
     return interaction.reply(`zy is active. Lockdown: **${state.lockdowns.has(interaction.guild.id) ? "ON" : "OFF"}** | Dry run: **${config.dryRun ? "ON" : "OFF"}`);
+  }
+  if (interaction.commandName === "offline" || interaction.commandName === "online") {
+    if (!config.ownerUsers.has(interaction.user.id)) {
+      return interaction.reply({ content: "Owner only. Add your ID to OWNER_USER_IDS.", ephemeral: true });
+    }
+    const status = interaction.commandName;
+    setBotPresence(status, "Bearded Sexy Brown Boys", "https://twitch.tv/a");
+    return interaction.reply(status === "offline"
+      ? "Bot status set to offline."
+      : "Bot status set to online and streaming **Bearded Sexy Brown Boys** at https://twitch.tv/a.");
   }
   if (!canManage(member)) return interaction.reply({ content: "You need Administrator permission or an allowlisted role/user.", ephemeral: true });
   if (interaction.commandName === "setup") {
